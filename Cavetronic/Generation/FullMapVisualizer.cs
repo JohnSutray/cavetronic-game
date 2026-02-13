@@ -56,19 +56,18 @@ public class FullMapVisualizer {
       // Кадр 2: Boolean grid
       DrawBoolGridToImage(ref image, data.BoolGrid, offsetX + fullWidth, offsetY, cellPixelSize);
 
-      // Кадр 3: Smoothed grid + contours
+      // Кадр 3: Smoothed grid
       DrawBoolGridToImage(ref image, data.SmoothedGrid, offsetX + fullWidth * 2, offsetY, cellPixelSize);
 
-      // Контуры уже в мировых координатах, преобразуем в локальные для отрисовки
-      var localContours = data.Contours.Select(contour =>
-        contour.Select(p => p - new Vector2(chunkX * _config.ChunkSize, chunkY * _config.ChunkSize)).ToList()
-      ).ToList();
-      
-      DrawContoursToImage(ref image, localContours, offsetX + fullWidth * 2, offsetY, cellPixelSize);
+      // Кадр 4: Smoothed grid + контуры для наглядности
+      DrawBoolGridToImage(ref image, data.SmoothedGrid, offsetX + fullWidth * 3, offsetY, cellPixelSize);
 
-      // Кадр 4: Полигоны (зелёные пустоты + контуры)
-      // DrawPolygonsToImage(ref image, data.SmoothedGrid, offsetX + fullWidth * 3, offsetY, cellPixelSize);
-      // DrawContoursToImage(ref image, localContours, offsetX + fullWidth * 3, offsetY, cellPixelSize);
+      // Контуры уже в мировых координатах (в физических единицах), преобразуем в локальные для отрисовки
+      var localContours = data.Contours.Select(contour =>
+        contour.Select(p => p - new Vector2(chunkX * _config.ChunkSize * _config.CellSize, chunkY * _config.ChunkSize * _config.CellSize)).ToList()
+      ).ToList();
+
+      DrawContoursToImage(ref image, localContours, offsetX + fullWidth * 3, offsetY, cellPixelSize);
     }
 
     // Рисуем границы чанков
@@ -138,13 +137,14 @@ public class FullMapVisualizer {
       if (contour.Count < 2) continue;
 
       for (int i = 0; i < contour.Count; i++) {
-        var start = contour[i]; // Уже локальные координаты
+        var start = contour[i]; // Локальные координаты в физических единицах (уже умножены на cellSize)
         var end = contour[(i + 1) % contour.Count];
 
-        var x1 = (int)(start.X * cellSize) + offsetX;
-        var y1 = (int)(start.Y * cellSize) + offsetY;
-        var x2 = (int)(end.X * cellSize) + offsetX;
-        var y2 = (int)(end.Y * cellSize) + offsetY;
+        // Конвертируем физические единицы в пиксели (cellSize пикселей на физическую единицу)
+        var x1 = (int)(start.X / _config.CellSize * cellSize) + offsetX;
+        var y1 = (int)(start.Y / _config.CellSize * cellSize) + offsetY;
+        var x2 = (int)(end.X / _config.CellSize * cellSize) + offsetX;
+        var y2 = (int)(end.Y / _config.CellSize * cellSize) + offsetY;
 
         // Рисуем толстую яркую линию
         var lineColor = new Color(0, 255, 0, 255); // Яркий зеленый
