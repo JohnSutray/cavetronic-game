@@ -10,21 +10,15 @@ public class Program {
 
     // Создаем entity с камерой
     var cameraEntity = gameWorld.Ecs.Create(
-      new Position { X = 32f, Y = 32f }, // Центр мира (chunk 0,0)
+      new Position { X = 10f, Y = 8f }, // Центр мира (chunk 0,0)
       new CameraTarget()
     );
-
-    var caveGen = new CaveGenerationSystem(gameWorld);
-    
-    caveGen.Init();
-    
-    return;
 
     // Создаем системы в правильном порядке
     var cameraSystem = new CameraSystem(gameWorld);
     var systems = new EcsSystem[] {
-      new CaveGenerationSystem(gameWorld),
       new PhysicsSystem(gameWorld),
+      new TerrainSystem(gameWorld),
       cameraSystem,
       new CameraControlSystem(gameWorld, cameraSystem),
       new CameraStartSystem(gameWorld, cameraSystem),
