@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(dotnet run:*)",
+      "Bash(dotnet add package:*)",
+      "Bash(powershell -Command \"[System.Reflection.Assembly]::LoadFrom\\(\\(Get-ChildItem -Path ''C:\\\\Users\\\\JohnS\\\\.nuget\\\\packages\\\\aether.physics2d\\\\2.2.0'' -Filter ''Aether.Physics2D.dll'' -Recurse | Select-Object -First 1\\).FullName\\).GetExportedTypes\\(\\) | ForEach-Object { $_Namespace } | Sort-Object -Unique\")",
+      "Bash(powershell -NoProfile -Command \"$asm = [System.Reflection.Assembly]::LoadFrom\\(\\(Get-ChildItem -Path ''C:\\\\Users\\\\JohnS\\\\.nuget\\\\packages\\\\aether.physics2d\\\\2.2.0'' -Filter ''Aether.Physics2D.dll'' -Recurse | Select-Object -First 1\\).FullName\\); $asm.GetExportedTypes\\(\\) | ForEach-Object { $_Namespace } | Sort-Object -Unique\")",
+      "Bash(powershell -NoProfile -Command \"$dll = Get-ChildItem -Path ''C:\\\\Users\\\\JohnS\\\\.nuget\\\\packages\\\\aether.physics2d\\\\2.2.0'' -Filter ''Aether.Physics2D.dll'' -Recurse | Select-Object -First 1; $asm = [System.Reflection.Assembly]::LoadFrom\\($dll.FullName\\); $asm.GetExportedTypes\\(\\) | Select-Object -Property Namespace -Unique | Sort-Object Namespace\")",
+      "Bash(dotnet script:*)",
+      "Bash(dotnet-script:*)",
+      "Bash(del \"C:\\\\Users\\\\JohnS\\\\RiderProjects\\\\Cavetronic\\\\check_ns.csx\")",
+      "Bash(dotnet --list-sdks:*)",
+      "Bash(where:*)",
+      "Bash(dir:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl:*)",
+      "Bash(powershell -Command \"Invoke-WebRequest -Uri ''https://raw.githubusercontent.com/Auburn/FastNoiseLite/master/CSharp/FastNoiseLite.cs'' -OutFile ''C:\\\\Users\\\\JohnS\\\\RiderProjects\\\\Cavetronic\\\\Cavetronic\\\\Generation\\\\FastNoiseLite.cs''\")",
+      "Bash(findstr:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"C:\\\\Users\\\\JohnS\\\\RiderProjects\\\\Cavetronic\\\\Cavetronic\\\\Cavetronic.csproj\" /t:Build /v:minimal)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" Cavetronic.csproj)",
+      "Bash(\"C:\\\\Program Files\\\\JetBrains\\\\JetBrains Rider 2024.3.4\\\\lib\\\\ReSharperHost\\\\windows-x64\\\\dotnet\\\\dotnet.exe\" --list-sdks)",
+      "Bash(timeout /t 10 dotnet run:*)",
+      "Bash(taskkill:*)",
+      "Bash(timeout:*)"
+    ]
+  }
+}

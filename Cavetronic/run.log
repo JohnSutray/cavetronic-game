@@ -1,0 +1,67 @@
+INFO: FILEIO: [Images/chunk_-1_-1.png] File saved successfully
+INFO: FILEIO: [Images/chunk_-1_-1.png] Image exported successfully
+Chunk (-1,-1): 1 contours, 1664/4096 solid (40,6%) -> Images/chunk_-1_-1.png
+INFO: FILEIO: [Images/chunk_-1_0.png] File saved successfully
+INFO: FILEIO: [Images/chunk_-1_0.png] Image exported successfully
+Chunk (-1,0): 3 contours, 1961/4096 solid (47,9%) -> Images/chunk_-1_0.png
+INFO: FILEIO: [Images/chunk_-1_1.png] File saved successfully
+INFO: FILEIO: [Images/chunk_-1_1.png] Image exported successfully
+Chunk (-1,1): 1 contours, 1750/4096 solid (42,7%) -> Images/chunk_-1_1.png
+INFO: FILEIO: [Images/chunk_0_-1.png] File saved successfully
+INFO: FILEIO: [Images/chunk_0_-1.png] Image exported successfully
+Chunk (0,-1): 4 contours, 1199/4096 solid (29,3%) -> Images/chunk_0_-1.png
+INFO: FILEIO: [Images/chunk_0_0.png] File saved successfully
+INFO: FILEIO: [Images/chunk_0_0.png] Image exported successfully
+Chunk (0,0): 2 contours, 1728/4096 solid (42,2%) -> Images/chunk_0_0.png
+INFO: FILEIO: [Images/chunk_0_1.png] File saved successfully
+INFO: FILEIO: [Images/chunk_0_1.png] Image exported successfully
+Chunk (0,1): 4 contours, 597/4096 solid (14,6%) -> Images/chunk_0_1.png
+INFO: FILEIO: [Images/chunk_1_-1.png] File saved successfully
+INFO: FILEIO: [Images/chunk_1_-1.png] Image exported successfully
+Chunk (1,-1): 3 contours, 1587/4096 solid (38,7%) -> Images/chunk_1_-1.png
+INFO: FILEIO: [Images/chunk_1_0.png] File saved successfully
+INFO: FILEIO: [Images/chunk_1_0.png] Image exported successfully
+Chunk (1,0): 2 contours, 1853/4096 solid (45,2%) -> Images/chunk_1_0.png
+INFO: FILEIO: [Images/chunk_1_1.png] File saved successfully
+INFO: FILEIO: [Images/chunk_1_1.png] Image exported successfully
+Chunk (1,1): 4 contours, 1017/4096 solid (24,8%) -> Images/chunk_1_1.png
+INFO: Initializing raylib 5.5
+INFO: Platform backend: DESKTOP (GLFW)
+INFO: Supported raylib modules:
+INFO:     > rcore:..... loaded (mandatory)
+INFO:     > rlgl:...... loaded (mandatory)
+INFO:     > rshapes:... loaded (optional)
+INFO:     > rtextures:. loaded (optional)
+INFO:     > rtext:..... loaded (optional)
+INFO:     > rmodels:... loaded (optional)
+INFO:     > raudio:.... loaded (optional)
+INFO: DISPLAY: Device initialized successfully
+INFO:     > Display size: 5120 x 1440
+INFO:     > Screen size:  2000 x 1000
+INFO:     > Render size:  2000 x 1000
+INFO:     > Viewport offsets: 0, 0
+INFO: GLAD: OpenGL extensions loaded successfully
+INFO: GL: Supported extensions count: 403
+INFO: GL: OpenGL device information:
+INFO:     > Vendor:   NVIDIA Corporation
+INFO:     > Renderer: NVIDIA GeForce RTX 5080/PCIe/SSE2
+INFO:     > Version:  3.3.0 NVIDIA 580.88
+INFO:     > GLSL:     3.30 NVIDIA via Cg compiler
+INFO: GL: VAO extension detected, VAO functions loaded successfully
+INFO: GL: NPOT textures extension detected, full NPOT textures supported
+INFO: GL: DXT compressed textures supported
+INFO: GL: ETC2/EAC compressed textures supported
+INFO: PLATFORM: DESKTOP (GLFW - Win32): Initialized successfully
+INFO: TEXTURE: [ID 1] Texture loaded successfully (1x1 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 1] Default texture loaded successfully
+INFO: SHADER: [ID 1] Vertex shader compiled successfully
+INFO: SHADER: [ID 2] Fragment shader compiled successfully
+INFO: SHADER: [ID 3] Program shader loaded successfully
+INFO: SHADER: [ID 3] Default shader loaded successfully
+INFO: RLGL: Render batch vertex buffers loaded successfully in RAM (CPU)
+INFO: RLGL: Render batch vertex buffers loaded successfully in VRAM (GPU)
+INFO: RLGL: Default OpenGL state initialized successfully
+INFO: TEXTURE: [ID 2] Texture loaded successfully (128x128 | GRAY_ALPHA | 1 mipmaps)
+INFO: FONT: Default font loaded successfully (224 glyphs)
+INFO: SYSTEM: Working Directory: C:\Users\JohnS\RiderProjects\Cavetronic\Cavetronic
+INFO: TIMER: Target time per frame: 8.333 milliseconds
