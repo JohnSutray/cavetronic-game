@@ -1,8 +1,8 @@
 namespace Cavetronic.Generation;
 
 public static class CellularAutomata {
-  // Сглаживание + опционально заполнение маленьких пустот
-  public static bool[,] Smooth(bool[,] grid, int iterations, int solidThreshold, int maxVoidSize = 0) {
+  // Сглаживание + опционально заполнение изолированных пустот
+  public static bool[,] Smooth(bool[,] grid, int iterations, int solidThreshold, bool fillIsolatedVoids = false) {
     var width = grid.GetLength(0);
     var height = grid.GetLength(1);
     var result = (bool[,])grid.Clone();
@@ -21,34 +21,43 @@ public static class CellularAutomata {
       result = temp;
     }
 
-    // "Задушить" маленькие пустоты после сглаживания
-    if (maxVoidSize > 0) {
-      result = FillSmallVoids(result, maxVoidSize);
+    // "Задушить" пустоты, которые не касаются границ чанка
+    if (fillIsolatedVoids) {
+      result = FillEnclosedVoids(result);
     }
 
     return result;
   }
 
-  // "Задушить" маленькие пустоты - все empty острова меньше заданного размера
-  private static bool[,] FillSmallVoids(bool[,] grid, int maxVoidSize) {
+  // "Задушить" маленькие пустоты - оставляем только топ-2 самые большие
+  private static bool[,] FillEnclosedVoids(bool[,] grid) {
     var width = grid.GetLength(0);
     var height = grid.GetLength(1);
     var result = (bool[,])grid.Clone();
     var visited = new bool[width, height];
+    var allIslands = new List<List<(int x, int y)>>();
 
     // Находим все empty острова
     for (int x = 0; x < width; x++) {
       for (int y = 0; y < height; y++) {
         if (!result[x, y] && !visited[x, y]) {
-          // Нашли новый empty остров
           var island = FloodFillEmptyIsland(result, visited, x, y);
+          allIslands.Add(island);
+        }
+      }
+    }
 
-          // Если остров слишком маленький - заполняем его
-          if (island.Count <= maxVoidSize) {
-            foreach (var (ix, iy) in island) {
-              result[ix, iy] = true;
-            }
-          }
+    // Если островов 1 или меньше - ничего не делаем
+    if (allIslands.Count <= 1) return result;
+
+    // Оставляем только самый большой остров (основная пещера)
+    var largestIsland = allIslands.OrderByDescending(i => i.Count).First();
+
+    // Заполняем все остальные острова
+    foreach (var island in allIslands) {
+      if (island != largestIsland) {
+        foreach (var (ix, iy) in island) {
+          result[ix, iy] = true;
         }
       }
     }
