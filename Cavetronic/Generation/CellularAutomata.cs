@@ -2,7 +2,12 @@ namespace Cavetronic.Generation;
 
 public static class CellularAutomata {
   // Сглаживание + опционально заполнение изолированных пустот
-  public static bool[,] Smooth(bool[,] grid, int iterations, int solidThreshold, bool fillIsolatedVoids = false) {
+  public static bool[,] Smooth(
+    bool[,] grid,
+    int iterations,
+    int solidThreshold,
+    bool fillIsolatedVoids = false
+  ) {
     var width = grid.GetLength(0);
     var height = grid.GetLength(1);
     var result = (bool[,])grid.Clone();
@@ -87,9 +92,11 @@ public static class CellularAutomata {
           foreach (var (vx, vy) in voidCells) {
             result[vx, vy] = true;
           }
+
           filledVoids++;
           Console.WriteLine($"    [CA] Filled isolated void: {voidCells.Count} cells");
-        } else {
+        }
+        else {
           Console.WriteLine($"    [CA] Kept border void: {voidCells.Count} cells");
         }
       }

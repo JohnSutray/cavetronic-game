@@ -24,9 +24,6 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
 
     // Сохраняем полную карту
     _visualizer.SaveFullMap();
-
-    // Сохраняем отладочное изображение верхнего правого чанка
-    _visualizer.SaveChunkDebug(1, -1);
   }
 
   private void GenerateChunk(int chunkX, int chunkY) {
@@ -38,10 +35,21 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     var rawNoise = ChunkVisualizer.GenerateRawNoise(_config, startX, startY, gridSize);
 
     // 2. Конвертация в boolean grid
-    var grid = _noiseGenerator.GenerateGrid(startX, startY, gridSize, gridSize, _config.Threshold);
+    var grid = _noiseGenerator.GenerateGrid(
+      startX,
+      startY,
+      gridSize,
+      gridSize,
+      _config.Threshold
+    );
 
     // 3. Сглаживание через Cellular Automata
-    var smoothedGrid = CellularAutomata.Smooth(grid, _config.SmoothIterations, _config.SolidNeighborThreshold, fillIsolatedVoids: true);
+    var smoothedGrid = CellularAutomata.Smooth(
+      grid,
+      _config.SmoothIterations,
+      _config.SolidNeighborThreshold,
+      fillIsolatedVoids: true
+    );
 
     // 4. Извлечение островов (контуры + клетки)
     var islands = SimpleIslandTracer.ExtractIslands(smoothedGrid, _config.CellSize);
@@ -49,7 +57,7 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     // 5. Конвертация в мировые координаты
     var offsetX = chunkX * gridSize * _config.CellSize;
     var offsetY = chunkY * gridSize * _config.CellSize;
-    
+
     var worldContours = new List<List<Vector2>>();
     var allShards = new List<List<Vector2>>();
     var islandSeed = _config.Seed + chunkX * 1000 + chunkY;
@@ -57,7 +65,9 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     foreach (var island in islands) {
       if (island.Contour.Count >= 3) {
         // Смещаем контур в позицию chunk'а
-        var worldContour = island.Contour.Select(p => p + new Vector2(offsetX, offsetY)).ToList();
+        var worldContour = island.Contour.Select(
+          p => p + new Vector2(offsetX, offsetY)
+        ).ToList();
         worldContours.Add(worldContour);
 
         // 6. Разбиваем остров на осколки через grid-based Voronoi
@@ -79,20 +89,5 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
 
     // 8. Добавляем в визуализатор
     _visualizer.AddChunk(chunkX, chunkY, rawNoise, grid, smoothedGrid, worldContours, allShards);
-
-    var solidCount = CountSolid(smoothedGrid);
-    var total = gridSize * gridSize;
-    var totalVertices = worldContours.Sum(c => c.Count);
-    Console.WriteLine($"Chunk ({chunkX},{chunkY}): {worldContours.Count} islands, {totalVertices} vertices, {solidCount}/{total} solid ({100f * solidCount / total:F1}%)");
-  }
-
-  private static int CountSolid(bool[,] grid) {
-    var count = 0;
-    for (int x = 0; x < grid.GetLength(0); x++) {
-      for (int y = 0; y < grid.GetLength(1); y++) {
-        if (grid[x, y]) count++;
-      }
-    }
-    return count;
   }
 }

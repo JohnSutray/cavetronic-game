@@ -2,7 +2,10 @@ using nkast.Aether.Physics2D.Common;
 
 namespace Cavetronic.Generation;
 
-public record IslandData(List<Vector2> Contour, List<(int x, int y)> Cells);
+public record IslandData(
+  List<Vector2> Contour,
+  List<(int x, int y)> Cells
+);
 
 public static class SimpleIslandTracer {
   // Извлекает острова из сетки - каждый остров это контур + список клеток
@@ -30,6 +33,7 @@ public static class SimpleIslandTracer {
   // Извлекает контур из набора клеток через edge tracing
   public static List<Vector2> ExtractContour(List<(int x, int y)> cells, float cellSize) {
     var cellSet = new HashSet<(int x, int y)>(cells);
+    
     return ExtractContourFromSet(cells, cellSet, cellSize);
   }
 
@@ -43,16 +47,16 @@ public static class SimpleIslandTracer {
     foreach (var (x, y) in cells) {
       if (!cellSet.Contains((x - 1, y)))
         edges.Add((new Vector2(x * cellSize, y * cellSize),
-                   new Vector2(x * cellSize, (y + 1) * cellSize)));
+          new Vector2(x * cellSize, (y + 1) * cellSize)));
       if (!cellSet.Contains((x + 1, y)))
         edges.Add((new Vector2((x + 1) * cellSize, (y + 1) * cellSize),
-                   new Vector2((x + 1) * cellSize, y * cellSize)));
+          new Vector2((x + 1) * cellSize, y * cellSize)));
       if (!cellSet.Contains((x, y - 1)))
         edges.Add((new Vector2((x + 1) * cellSize, y * cellSize),
-                   new Vector2(x * cellSize, y * cellSize)));
+          new Vector2(x * cellSize, y * cellSize)));
       if (!cellSet.Contains((x, y + 1)))
         edges.Add((new Vector2(x * cellSize, (y + 1) * cellSize),
-                   new Vector2((x + 1) * cellSize, (y + 1) * cellSize)));
+          new Vector2((x + 1) * cellSize, (y + 1) * cellSize)));
     }
 
     if (edges.Count == 0) {
@@ -100,16 +104,21 @@ public static class SimpleIslandTracer {
 
   private static List<Vector2> TraceEdgeLoop(List<(Vector2 p1, Vector2 p2)> edges) {
     var contour = new List<Vector2>();
-    if (edges.Count == 0) return contour;
+    
+    if (edges.Count == 0) {
+      return contour;
+    }
 
     // Используем словарь для O(1) поиска следующего ребра
     var edgeMap = new Dictionary<(int, int), List<int>>();
     for (var i = 0; i < edges.Count; i++) {
       var key = QuantizePoint(edges[i].p1);
+      
       if (!edgeMap.TryGetValue(key, out var list)) {
         list = [];
         edgeMap[key] = list;
       }
+
       list.Add(i);
     }
 

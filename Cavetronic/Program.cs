@@ -14,12 +14,6 @@ public class Program {
       new CameraTarget()
     );
 
-    var caveGen = new CaveGenerationSystem(gameWorld);
-    
-    caveGen.Init();
-    
-    return;
-
     // Создаем системы в правильном порядке
     var cameraSystem = new CameraSystem(gameWorld);
     var systems = new EcsSystem[] {
