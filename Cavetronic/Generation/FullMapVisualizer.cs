@@ -11,12 +11,13 @@ public class FullMapVisualizer {
     _config = config;
   }
 
-  public void AddChunk(int chunkX, int chunkY, float[,] rawNoise, bool[,] boolGrid, bool[,] smoothedGrid, List<List<Vector2>> contours) {
+  public void AddChunk(int chunkX, int chunkY, float[,] rawNoise, bool[,] boolGrid, bool[,] smoothedGrid, List<List<Vector2>> contours, List<List<Vector2>> shards) {
     _chunks[(chunkX, chunkY)] = new ChunkData {
       RawNoise = rawNoise,
       BoolGrid = boolGrid,
       SmoothedGrid = smoothedGrid,
-      Contours = contours
+      Contours = contours,
+      Shards = shards
     };
   }
 
@@ -36,8 +37,8 @@ public class FullMapVisualizer {
     var fullWidth = chunksX * chunkPixelSize;
     var fullHeight = chunksY * chunkPixelSize;
 
-    // Создаем 4 больших изображения (raw, bool, smoothed, polygons) горизонтально
-    var totalWidth = fullWidth * 4;
+    // Создаем 5 больших изображений (raw, bool, smoothed, contours, shards) горизонтально
+    var totalWidth = fullWidth * 5;
     var image = Raylib.GenImageColor(totalWidth, fullHeight, Color.Black);
 
     // Рисуем каждый чанк
@@ -68,6 +69,15 @@ public class FullMapVisualizer {
       ).ToList();
 
       DrawContoursToImage(ref image, localContours, offsetX + fullWidth * 3, offsetY, cellPixelSize);
+
+      // Кадр 5: Осколки (shards)
+      DrawBoolGridToImage(ref image, data.SmoothedGrid, offsetX + fullWidth * 4, offsetY, cellPixelSize);
+
+      var localShards = data.Shards.Select(shard =>
+        shard.Select(p => p - new Vector2(chunkX * _config.ChunkSize * _config.CellSize, chunkY * _config.ChunkSize * _config.CellSize)).ToList()
+      ).ToList();
+
+      DrawShardsToImage(ref image, localShards, offsetX + fullWidth * 4, offsetY, cellPixelSize);
     }
 
     // Рисуем границы чанков
@@ -121,7 +131,8 @@ public class FullMapVisualizer {
 
     for (int x = 0; x < width; x++) {
       for (int y = 0; y < height; y++) {
-        var color = grid[x, y] ? Color.White : new Color(20, 20, 20, 255);
+        // Инвертировано: solid (true) = чёрный, empty (false) = белый
+        var color = grid[x, y] ? Color.Black : Color.White;
 
         for (int px = 0; px < cellSize; px++) {
           for (int py = 0; py < cellSize; py++) {
@@ -146,8 +157,31 @@ public class FullMapVisualizer {
         var x2 = (int)(end.X / _config.CellSize * cellSize) + offsetX;
         var y2 = (int)(end.Y / _config.CellSize * cellSize) + offsetY;
 
-        // Рисуем толстую яркую линию
-        var lineColor = new Color(0, 255, 0, 255); // Яркий зеленый
+        // Рисуем толстую яркую линию (красный для контраста с чёрным solid)
+        var lineColor = new Color(255, 0, 0, 255); // Яркий красный
+        for (int offset = -2; offset <= 2; offset++) {
+          DrawLineOnImage(ref image, x1 + offset, y1, x2 + offset, y2, lineColor);
+          DrawLineOnImage(ref image, x1, y1 + offset, x2, y2 + offset, lineColor);
+        }
+      }
+    }
+  }
+
+  private void DrawShardsToImage(ref Image image, List<List<Vector2>> shards, int offsetX, int offsetY, int cellSize) {
+    foreach (var shard in shards) {
+      if (shard.Count < 3) continue;
+
+      for (int i = 0; i < shard.Count; i++) {
+        var start = shard[i];
+        var end = shard[(i + 1) % shard.Count];
+
+        var x1 = (int)(start.X / _config.CellSize * cellSize) + offsetX;
+        var y1 = (int)(start.Y / _config.CellSize * cellSize) + offsetY;
+        var x2 = (int)(end.X / _config.CellSize * cellSize) + offsetX;
+        var y2 = (int)(end.Y / _config.CellSize * cellSize) + offsetY;
+
+        // Рисуем линии осколков зелёным (толстые, как контуры)
+        var lineColor = new Color(0, 255, 0, 255); // Яркий зелёный
         for (int offset = -2; offset <= 2; offset++) {
           DrawLineOnImage(ref image, x1 + offset, y1, x2 + offset, y2, lineColor);
           DrawLineOnImage(ref image, x1, y1 + offset, x2, y2 + offset, lineColor);
@@ -186,7 +220,7 @@ public class FullMapVisualizer {
     var borderColor = Color.Red;
 
     // Вертикальные линии границ чанков
-    for (int section = 0; section < 4; section++) {
+    for (int section = 0; section < 5; section++) {
       var sectionOffsetX = section * fullWidth;
 
       for (int cx = 0; cx <= chunksX; cx++) {
@@ -235,7 +269,7 @@ public class FullMapVisualizer {
     var labelColor = Color.Yellow;
 
     // Разделители между секциями
-    for (int i = 1; i < 4; i++) {
+    for (int i = 1; i < 5; i++) {
       var x = i * frameWidth;
       for (int y = 0; y < frameHeight; y++) {
         for (int offset = 0; offset < 3; offset++) {
@@ -247,10 +281,52 @@ public class FullMapVisualizer {
     }
   }
 
+  public void SaveChunkDebug(int targetChunkX, int targetChunkY) {
+    if (!_chunks.TryGetValue((targetChunkX, targetChunkY), out var data)) {
+      Console.WriteLine($"Chunk ({targetChunkX},{targetChunkY}) not found");
+      return;
+    }
+
+    var cellPixelSize = 16; // 16 пикселей на клетку для детальной визуализации
+    var width = data.SmoothedGrid.GetLength(0) * cellPixelSize;
+    var height = data.SmoothedGrid.GetLength(1) * cellPixelSize;
+
+    var image = Raylib.GenImageColor(width, height, Color.Black);
+
+    // Рисуем сглаженную сетку
+    DrawBoolGridToImage(ref image, data.SmoothedGrid, 0, 0, cellPixelSize);
+
+    // Рисуем границы чанка красными линиями
+    for (int x = 0; x < width; x++) {
+      Raylib.ImageDrawPixel(ref image, x, 0, Color.Red);
+      Raylib.ImageDrawPixel(ref image, x, 1, Color.Red);
+      Raylib.ImageDrawPixel(ref image, x, height - 2, Color.Red);
+      Raylib.ImageDrawPixel(ref image, x, height - 1, Color.Red);
+    }
+    for (int y = 0; y < height; y++) {
+      Raylib.ImageDrawPixel(ref image, 0, y, Color.Red);
+      Raylib.ImageDrawPixel(ref image, 1, y, Color.Red);
+      Raylib.ImageDrawPixel(ref image, width - 2, y, Color.Red);
+      Raylib.ImageDrawPixel(ref image, width - 1, y, Color.Red);
+    }
+
+    var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+    var sourcePath = System.IO.Path.Combine(baseDir, "..", "..", "..", "Images");
+    var fullSourcePath = System.IO.Path.GetFullPath(sourcePath);
+    Directory.CreateDirectory(fullSourcePath);
+    var filename = System.IO.Path.Combine(fullSourcePath, $"chunk_{targetChunkX}_{targetChunkY}_debug.png");
+
+    Raylib.ExportImage(image, filename);
+    Raylib.UnloadImage(image);
+
+    Console.WriteLine($"Saved debug image: {filename} ({width}x{height})");
+  }
+
   private class ChunkData {
     public float[,] RawNoise = null!;
     public bool[,] BoolGrid = null!;
     public bool[,] SmoothedGrid = null!;
     public List<List<Vector2>> Contours = null!;
+    public List<List<Vector2>> Shards = null!;
   }
 }

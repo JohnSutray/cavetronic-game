@@ -15,7 +15,7 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     _bodyBuilder = new PhysicsBodyBuilder(GameWorld.Physics, _config);
     _visualizer = new FullMapVisualizer(_config);
 
-    // Генерируем 3×3 chunk'ов
+    // Генерируем 3x3 chunk'ов
     for (int chunkX = -1; chunkX <= 1; chunkX++) {
       for (int chunkY = -1; chunkY <= 1; chunkY++) {
         GenerateChunk(chunkX, chunkY);
@@ -25,8 +25,8 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     // Сохраняем полную карту
     _visualizer.SaveFullMap();
 
-    // Генерируем камни для тестирования
-    // GenerateRocks(10);
+    // Сохраняем отладочное изображение верхнего правого чанка
+    _visualizer.SaveChunkDebug(1, -1);
   }
 
   private void GenerateChunk(int chunkX, int chunkY) {
@@ -40,33 +40,50 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     // 2. Конвертация в boolean grid
     var grid = _noiseGenerator.GenerateGrid(startX, startY, gridSize, gridSize, _config.Threshold);
 
-    // 3. Сглаживание через Cellular Automata (без заполнения пустот)
-    var smoothedGrid = CellularAutomata.Smooth(grid, _config.SmoothIterations, _config.SolidNeighborThreshold, fillIsolatedVoids: false);
+    // 3. Сглаживание через Cellular Automata
+    var smoothedGrid = CellularAutomata.Smooth(grid, _config.SmoothIterations, _config.SolidNeighborThreshold, fillIsolatedVoids: true);
 
-    // 4. Извлечение островов (простой алгоритм - прямоугольные контуры)
-    var islandContours = SimpleIslandTracer.ExtractIslands(smoothedGrid, _config.CellSize);
+    // 4. Извлечение островов (контуры + клетки)
+    var islands = SimpleIslandTracer.ExtractIslands(smoothedGrid, _config.CellSize);
 
-    // 5. Создание физических тел + конвертация в мировые координаты
+    // 5. Конвертация в мировые координаты
     var offsetX = chunkX * gridSize * _config.CellSize;
     var offsetY = chunkY * gridSize * _config.CellSize;
 
-    var worldIslands = new List<List<Vector2>>();
-    foreach (var island in islandContours) {
-      if (island.Count >= 3) {
+    var worldContours = new List<List<Vector2>>();
+    var allShards = new List<List<Vector2>>();
+    var islandSeed = _config.Seed + chunkX * 1000 + chunkY;
+
+    foreach (var island in islands) {
+      if (island.Contour.Count >= 3) {
         // Смещаем контур в позицию chunk'а
-        var worldIsland = island.Select(p => p + new Vector2(offsetX, offsetY)).ToList();
-        worldIslands.Add(worldIsland);
-        _bodyBuilder.CreateBodyFromRegion(worldIsland);
+        var worldContour = island.Contour.Select(p => p + new Vector2(offsetX, offsetY)).ToList();
+        worldContours.Add(worldContour);
+
+        // 6. Разбиваем остров на осколки через grid-based Voronoi
+        var shards = ShardGenerator.CreateShards(island.Cells, _config.CellSize, islandSeed++);
+
+        // Смещаем шарды в мировые координаты
+        var worldShards = shards.Select(s =>
+          s.Select(p => p + new Vector2(offsetX, offsetY)).ToList()
+        ).ToList();
+
+        allShards.AddRange(worldShards);
+
+        // 7. Создаём физические тела из осколков
+        foreach (var shard in worldShards) {
+          _bodyBuilder.CreateBodyFromShard(shard);
+        }
       }
     }
 
-    // 6. Добавляем в визуализатор (с мировыми координатами контуров)
-    _visualizer.AddChunk(chunkX, chunkY, rawNoise, grid, smoothedGrid, worldIslands);
+    // 8. Добавляем в визуализатор
+    _visualizer.AddChunk(chunkX, chunkY, rawNoise, grid, smoothedGrid, worldContours, allShards);
 
     var solidCount = CountSolid(smoothedGrid);
     var total = gridSize * gridSize;
-    var totalVertices = worldIslands.Sum(c => c.Count);
-    Console.WriteLine($"Chunk ({chunkX},{chunkY}): {worldIslands.Count} islands, {totalVertices} vertices, {solidCount}/{total} solid ({100f * solidCount / total:F1}%)");
+    var totalVertices = worldContours.Sum(c => c.Count);
+    Console.WriteLine($"Chunk ({chunkX},{chunkY}): {worldContours.Count} islands, {totalVertices} vertices, {solidCount}/{total} solid ({100f * solidCount / total:F1}%)");
   }
 
   private static int CountSolid(bool[,] grid) {

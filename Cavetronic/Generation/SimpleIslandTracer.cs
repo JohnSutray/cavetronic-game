@@ -2,30 +2,74 @@ using nkast.Aether.Physics2D.Common;
 
 namespace Cavetronic.Generation;
 
+public record IslandData(List<Vector2> Contour, List<(int x, int y)> Cells);
+
 public static class SimpleIslandTracer {
-  // Извлекает острова из сетки - каждый остров это список вершин прямоугольного контура
-  public static List<List<Vector2>> ExtractIslands(bool[,] grid, float cellSize) {
+  // Извлекает острова из сетки - каждый остров это контур + список клеток
+  public static List<IslandData> ExtractIslands(bool[,] grid, float cellSize) {
     var width = grid.GetLength(0);
     var height = grid.GetLength(1);
-    var islands = new List<List<Vector2>>();
+    var islands = new List<IslandData>();
     var visited = new bool[width, height];
 
-    // Находим все связные solid регионы через flood fill
     for (int x = 0; x < width; x++) {
       for (int y = 0; y < height; y++) {
         if (grid[x, y] && !visited[x, y]) {
-          // Нашли новый остров
           var cells = FloodFill(grid, visited, x, y);
           if (cells.Count >= 1) {
-            // Создаём прямоугольный контур вокруг острова
-            var contour = CreateRectangularContour(cells, cellSize);
-            islands.Add(contour);
+            var contour = ExtractContour(cells, cellSize);
+            islands.Add(new IslandData(contour, cells));
           }
         }
       }
     }
 
     return islands;
+  }
+
+  // Извлекает контур из набора клеток через edge tracing
+  public static List<Vector2> ExtractContour(List<(int x, int y)> cells, float cellSize) {
+    var cellSet = new HashSet<(int x, int y)>(cells);
+    return ExtractContourFromSet(cells, cellSet, cellSize);
+  }
+
+  // Извлекает контур из набора клеток (с предвычисленным HashSet)
+  public static List<Vector2> ExtractContourFromSet(
+    List<(int x, int y)> cells,
+    HashSet<(int x, int y)> cellSet,
+    float cellSize) {
+    var edges = new List<(Vector2 p1, Vector2 p2)>();
+
+    foreach (var (x, y) in cells) {
+      if (!cellSet.Contains((x - 1, y)))
+        edges.Add((new Vector2(x * cellSize, y * cellSize),
+                   new Vector2(x * cellSize, (y + 1) * cellSize)));
+      if (!cellSet.Contains((x + 1, y)))
+        edges.Add((new Vector2((x + 1) * cellSize, (y + 1) * cellSize),
+                   new Vector2((x + 1) * cellSize, y * cellSize)));
+      if (!cellSet.Contains((x, y - 1)))
+        edges.Add((new Vector2((x + 1) * cellSize, y * cellSize),
+                   new Vector2(x * cellSize, y * cellSize)));
+      if (!cellSet.Contains((x, y + 1)))
+        edges.Add((new Vector2(x * cellSize, (y + 1) * cellSize),
+                   new Vector2((x + 1) * cellSize, (y + 1) * cellSize)));
+    }
+
+    if (edges.Count == 0) {
+      var minX = cells.Min(c => c.x);
+      var maxX = cells.Max(c => c.x);
+      var minY = cells.Min(c => c.y);
+      var maxY = cells.Max(c => c.y);
+      return [
+        new Vector2(minX * cellSize, minY * cellSize),
+        new Vector2((maxX + 1) * cellSize, minY * cellSize),
+        new Vector2((maxX + 1) * cellSize, (maxY + 1) * cellSize),
+        new Vector2(minX * cellSize, (maxY + 1) * cellSize)
+      ];
+    }
+
+    var contour = TraceEdgeLoop(edges);
+    return SimplifyContour(contour);
   }
 
   private static List<(int x, int y)> FloodFill(bool[,] grid, bool[,] visited, int startX, int startY) {
@@ -41,7 +85,6 @@ public static class SimpleIslandTracer {
       var (x, y) = queue.Dequeue();
       cells.Add((x, y));
 
-      // Проверяем 4 соседа
       var neighbors = new[] { (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1) };
       foreach (var (nx, ny) in neighbors) {
         if (nx >= 0 && nx < width && ny >= 0 && ny < height &&
@@ -55,106 +98,65 @@ public static class SimpleIslandTracer {
     return cells;
   }
 
-  private static List<Vector2> CreateRectangularContour(List<(int x, int y)> cells, float cellSize) {
-    // Создаём контур из граничных рёбер клеток
-    var cellSet = new HashSet<(int x, int y)>(cells);
-    var edges = new List<(Vector2 p1, Vector2 p2)>();
-
-    // Для каждой клетки добавляем рёбра, которые граничат с empty
-    foreach (var (x, y) in cells) {
-      if (!cellSet.Contains((x - 1, y))) {
-        // Left edge
-        edges.Add((new Vector2(x * cellSize, y * cellSize),
-                   new Vector2(x * cellSize, (y + 1) * cellSize)));
-      }
-      if (!cellSet.Contains((x + 1, y))) {
-        // Right edge
-        edges.Add((new Vector2((x + 1) * cellSize, (y + 1) * cellSize),
-                   new Vector2((x + 1) * cellSize, y * cellSize)));
-      }
-      if (!cellSet.Contains((x, y - 1))) {
-        // Top edge
-        edges.Add((new Vector2((x + 1) * cellSize, y * cellSize),
-                   new Vector2(x * cellSize, y * cellSize)));
-      }
-      if (!cellSet.Contains((x, y + 1))) {
-        // Bottom edge
-        edges.Add((new Vector2(x * cellSize, (y + 1) * cellSize),
-                   new Vector2((x + 1) * cellSize, (y + 1) * cellSize)));
-      }
-    }
-
-    if (edges.Count == 0) {
-      // Fallback
-      var minX = cells.Min(c => c.x);
-      var maxX = cells.Max(c => c.x);
-      var minY = cells.Min(c => c.y);
-      var maxY = cells.Max(c => c.y);
-      return new List<Vector2> {
-        new Vector2(minX * cellSize, minY * cellSize),
-        new Vector2((maxX + 1) * cellSize, minY * cellSize),
-        new Vector2((maxX + 1) * cellSize, (maxY + 1) * cellSize),
-        new Vector2(minX * cellSize, (maxY + 1) * cellSize)
-      };
-    }
-
-    // Обходим рёбра в правильном порядке
-    var contour = TraceEdgeLoop(edges);
-    return SimplifyContour(contour);
-  }
-
   private static List<Vector2> TraceEdgeLoop(List<(Vector2 p1, Vector2 p2)> edges) {
     var contour = new List<Vector2>();
     if (edges.Count == 0) return contour;
 
+    // Используем словарь для O(1) поиска следующего ребра
+    var edgeMap = new Dictionary<(int, int), List<int>>();
+    for (var i = 0; i < edges.Count; i++) {
+      var key = QuantizePoint(edges[i].p1);
+      if (!edgeMap.TryGetValue(key, out var list)) {
+        list = [];
+        edgeMap[key] = list;
+      }
+      list.Add(i);
+    }
+
     var current = edges[0].p1;
     contour.Add(current);
-    var used = new HashSet<int>();
-    used.Add(0);
+    var used = new HashSet<int> { 0 };
     current = edges[0].p2;
 
     while (used.Count < edges.Count) {
       contour.Add(current);
 
-      // Ищем следующее ребро, которое начинается в current
-      int nextIdx = -1;
-      for (int i = 0; i < edges.Count; i++) {
-        if (used.Contains(i)) continue;
-        if (Distance(edges[i].p1, current) < 0.001f) {
-          nextIdx = i;
-          break;
+      var key = QuantizePoint(current);
+      var nextIdx = -1;
+      if (edgeMap.TryGetValue(key, out var candidates)) {
+        foreach (var idx in candidates) {
+          if (!used.Contains(idx)) {
+            nextIdx = idx;
+            break;
+          }
         }
       }
 
       if (nextIdx == -1) break;
-
       used.Add(nextIdx);
       current = edges[nextIdx].p2;
 
-      if (contour.Count > 10000) break; // Safety
+      if (contour.Count > 10000) break;
     }
 
     return contour;
   }
 
-  private static float Distance(Vector2 a, Vector2 b) {
-    var dx = a.X - b.X;
-    var dy = a.Y - b.Y;
-    return MathF.Sqrt(dx * dx + dy * dy);
-  }
+  // Квантует координату в целое число для ключа словаря (умножаем на 1000 для точности)
+  private static (int, int) QuantizePoint(Vector2 p) =>
+    ((int)MathF.Round(p.X * 1000), (int)MathF.Round(p.Y * 1000));
 
   private static List<Vector2> SimplifyContour(List<Vector2> vertices) {
     if (vertices.Count < 3) return vertices;
 
     var simplified = new List<Vector2>();
-    int n = vertices.Count;
+    var n = vertices.Count;
 
-    for (int i = 0; i < n; i++) {
+    for (var i = 0; i < n; i++) {
       var prev = vertices[(i - 1 + n) % n];
       var curr = vertices[i];
       var next = vertices[(i + 1) % n];
 
-      // Проверяем, лежит ли curr на прямой между prev и next
       if (!IsCollinear(prev, curr, next)) {
         simplified.Add(curr);
       }
@@ -164,7 +166,6 @@ public static class SimpleIslandTracer {
   }
 
   private static bool IsCollinear(Vector2 a, Vector2 b, Vector2 c) {
-    // Вычисляем векторное произведение
     var cross = (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
     return MathF.Abs(cross) < 0.001f;
   }
