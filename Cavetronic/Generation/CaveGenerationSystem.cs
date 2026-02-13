@@ -40,8 +40,8 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     // 2. Конвертация в boolean grid
     var grid = _noiseGenerator.GenerateGrid(startX, startY, gridSize, gridSize, _config.Threshold);
 
-    // 3. Сглаживание через Cellular Automata + заполнение изолированных пустот
-    var smoothedGrid = CellularAutomata.Smooth(grid, _config.SmoothIterations, _config.SolidNeighborThreshold, fillIsolatedVoids: true);
+    // 3. Сглаживание через Cellular Automata (без заполнения пустот)
+    var smoothedGrid = CellularAutomata.Smooth(grid, _config.SmoothIterations, _config.SolidNeighborThreshold, fillIsolatedVoids: false);
 
     // 4. Извлечение островов (простой алгоритм - прямоугольные контуры)
     var islandContours = SimpleIslandTracer.ExtractIslands(smoothedGrid, _config.CellSize);
