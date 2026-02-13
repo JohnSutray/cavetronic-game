@@ -2,7 +2,7 @@ using nkast.Aether.Physics2D.Common;
 
 namespace Cavetronic.Generation;
 
-/// Разбивает остров на осколки через grid-based Voronoi (медовые соты)
+/// Разбивает остров на выпуклые осколки через диаграмму Вороного
 public static class ShardGenerator {
   public static List<List<Vector2>> CreateShards(
     List<(int x, int y)> islandCells,
@@ -13,67 +13,282 @@ public static class ShardGenerator {
     var random = new Random(seed);
     var cellSet = new HashSet<(int x, int y)>(islandCells);
 
-    // Bounds острова в grid-координатах
-    var minX = islandCells.Min(c => c.x);
-    var maxX = islandCells.Max(c => c.x);
-    var minY = islandCells.Min(c => c.y);
-    var maxY = islandCells.Max(c => c.y);
+    var minGX = islandCells.Min(c => c.x);
+    var maxGX = islandCells.Max(c => c.x);
+    var minGY = islandCells.Min(c => c.y);
+    var maxGY = islandCells.Max(c => c.y);
 
-    // Количество сайтов Вороного зависит от площади
     var area = islandCells.Count * cellSize * cellSize;
     var numSites = Math.Clamp((int)(area / 100f), 3, 20);
 
-    // Генерируем случайные сайты (в grid-координатах с дробной частью)
-    var sites = new List<(float x, float y)>();
+    // Генерируем случайные сайты внутри острова (мировые координаты)
+    var sites = new List<Vector2>();
     var attempts = 0;
     while (sites.Count < numSites && attempts < numSites * 100) {
-      var x = minX + (float)random.NextDouble() * (maxX - minX + 1);
-      var y = minY + (float)random.NextDouble() * (maxY - minY + 1);
-      if (cellSet.Contains(((int)x, (int)y))) {
-        sites.Add((x, y));
+      var gx = minGX + random.NextDouble() * (maxGX - minGX + 1);
+      var gy = minGY + random.NextDouble() * (maxGY - minGY + 1);
+      if (cellSet.Contains(((int)gx, (int)gy))) {
+        sites.Add(new Vector2((float)(gx * cellSize), (float)(gy * cellSize)));
       }
       attempts++;
     }
 
-    if (sites.Count < 2) {
+    if (sites.Count < 2)
       return [SimpleIslandTracer.ExtractContour(islandCells, cellSize)];
-    }
 
-    // Назначаем каждую клетку ближайшему сайту
-    var groups = new Dictionary<int, List<(int x, int y)>>();
-    for (var i = 0; i < sites.Count; i++) groups[i] = [];
-
-    foreach (var cell in islandCells) {
-      var cx = cell.x + 0.5f;
-      var cy = cell.y + 0.5f;
-      var nearest = 0;
-      var nearestDist = float.MaxValue;
-
+    // Lloyd's relaxation — делает ячейки более равномерными (как соты)
+    for (var iter = 0; iter < 2; iter++) {
+      var cells = ComputeVoronoiCells(sites);
       for (var i = 0; i < sites.Count; i++) {
-        var dx = cx - sites[i].x;
-        var dy = cy - sites[i].y;
-        var dist = dx * dx + dy * dy;
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearest = i;
-        }
+        var clipped = SimpleClipToIsland(cells[i], cellSet, cellSize);
+        if (clipped.Count < 3) continue;
+        var centroid = PolygonCentroid(clipped);
+        if (IsInIsland(centroid, cellSet, cellSize))
+          sites[i] = centroid;
       }
-
-      groups[nearest].Add(cell);
     }
 
-    // Извлекаем контур каждой группы
+    // Контур острова для финальной обрезки — все его точки должны войти в шарды
+    var contour = SimpleIslandTracer.ExtractContour(islandCells, cellSize);
+
+    // Финальное вычисление + обрезка по контуру острова с сохранением всех точек контура
+    var finalCells = ComputeVoronoiCells(sites);
     var shards = new List<List<Vector2>>();
-    foreach (var group in groups.Values) {
-      if (group.Count < 1) continue;
-      var groupSet = new HashSet<(int x, int y)>(group);
-      var contour = SimpleIslandTracer.ExtractContourFromSet(group, groupSet, cellSize);
-      if (contour.Count >= 3) {
-        shards.Add(contour);
-      }
+    for (var i = 0; i < sites.Count; i++) {
+      var clipped = ClipCellWithContour(finalCells[i], contour, i, sites, cellSet, cellSize);
+      if (clipped.Count >= 3)
+        shards.Add(clipped);
     }
 
-    return shards.Count > 0 ? shards : [SimpleIslandTracer.ExtractContour(islandCells, cellSize)];
+    return shards.Count > 0 ? shards : [contour];
   }
 
+  /// Вычисляет ячейки Вороного через пересечение полуплоскостей
+  private static List<List<Vector2>> ComputeVoronoiCells(List<Vector2> sites) {
+    var minX = sites.Min(s => s.X);
+    var maxX = sites.Max(s => s.X);
+    var minY = sites.Min(s => s.Y);
+    var maxY = sites.Max(s => s.Y);
+    var margin = MathF.Max(maxX - minX, maxY - minY) + 100f;
+
+    var cells = new List<List<Vector2>>();
+    for (var i = 0; i < sites.Count; i++) {
+      var cell = new List<Vector2> {
+        new(minX - margin, minY - margin),
+        new(maxX + margin, minY - margin),
+        new(maxX + margin, maxY + margin),
+        new(minX - margin, maxY + margin)
+      };
+
+      for (var j = 0; j < sites.Count; j++) {
+        if (i == j) continue;
+        cell = ClipByBisector(cell, sites[i], sites[j]);
+        if (cell.Count < 3) break;
+      }
+      cells.Add(cell);
+    }
+    return cells;
+  }
+
+  /// Обрезает полигон биссектрисой, оставляя половину ближе к site
+  private static List<Vector2> ClipByBisector(List<Vector2> polygon, Vector2 site, Vector2 other) {
+    if (polygon.Count < 3) return polygon;
+
+    var mid = (site + other) * 0.5f;
+    var normal = site - other;
+    var result = new List<Vector2>();
+    var n = polygon.Count;
+
+    for (var i = 0; i < n; i++) {
+      var curr = polygon[i];
+      var next = polygon[(i + 1) % n];
+      var currDist = Dot(curr - mid, normal);
+      var nextDist = Dot(next - mid, normal);
+
+      if (currDist >= 0) {
+        result.Add(curr);
+        if (nextDist < 0)
+          result.Add(BisectorIntersect(curr, next, mid, normal));
+      } else if (nextDist >= 0) {
+        result.Add(BisectorIntersect(curr, next, mid, normal));
+      }
+    }
+    return result;
+  }
+
+  /// Обрезка ячейки по контуру с сохранением всех точек контура острова
+  private static List<Vector2> ClipCellWithContour(
+    List<Vector2> cell,
+    List<Vector2> contour,
+    int siteIdx,
+    List<Vector2> sites,
+    HashSet<(int x, int y)> cellSet,
+    float cellSize) {
+    if (cell.Count < 3 || contour.Count < 3) return cell;
+
+    // Если все вершины ячейки внутри острова — внутренняя ячейка, контур не нужен
+    if (cell.All(v => IsInIsland(v, cellSet, cellSize))) return cell;
+
+    var center = sites[siteIdx];
+    var points = new List<Vector2>();
+
+    // 1. Вершины Voronoi-ячейки, которые внутри острова
+    foreach (var v in cell) {
+      if (IsInIsland(v, cellSet, cellSize))
+        points.Add(v);
+    }
+
+    // 2. Вершины контура острова, ближайшие к этому сайту
+    foreach (var v in contour) {
+      if (NearestSiteIdx(v, sites) == siteIdx)
+        points.Add(v);
+    }
+
+    // 3. Точки пересечения рёбер Voronoi-ячейки с рёбрами контура
+    for (var i = 0; i < cell.Count; i++) {
+      var a = cell[i];
+      var b = cell[(i + 1) % cell.Count];
+      for (var j = 0; j < contour.Count; j++) {
+        var c = contour[j];
+        var d = contour[(j + 1) % contour.Count];
+        if (SegSegIntersect(a, b, c, d, out var pt))
+          points.Add(pt);
+      }
+    }
+
+    if (points.Count < 3) return [];
+
+    // 4. Убираем дубликаты (по расстоянию)
+    var unique = new List<Vector2> { points[0] };
+    for (var i = 1; i < points.Count; i++) {
+      var dominated = false;
+      foreach (var u in unique) {
+        var dx = u.X - points[i].X;
+        var dy = u.Y - points[i].Y;
+        if (dx * dx + dy * dy < 0.01f) {
+          dominated = true;
+          break;
+        }
+      }
+      if (!dominated) unique.Add(points[i]);
+    }
+
+    if (unique.Count < 3) return [];
+
+    // 5. Сортируем по углу вокруг сайта
+    unique.Sort((a, b) => {
+      var angleA = MathF.Atan2(a.Y - center.Y, a.X - center.X);
+      var angleB = MathF.Atan2(b.Y - center.Y, b.X - center.X);
+      return angleA.CompareTo(angleB);
+    });
+
+    return unique;
+  }
+
+  /// Простая обрезка для Lloyd's relaxation (без контура)
+  private static List<Vector2> SimpleClipToIsland(
+    List<Vector2> cell,
+    HashSet<(int x, int y)> cellSet,
+    float cellSize) {
+    if (cell.Count < 3) return cell;
+    if (cell.All(v => IsInIsland(v, cellSet, cellSize))) return cell;
+
+    var clipped = new List<Vector2>();
+    var n = cell.Count;
+
+    for (var i = 0; i < n; i++) {
+      var curr = cell[i];
+      var next = cell[(i + 1) % n];
+      var currIn = IsInIsland(curr, cellSet, cellSize);
+      var nextIn = IsInIsland(next, cellSet, cellSize);
+
+      if (currIn) {
+        clipped.Add(curr);
+        if (!nextIn)
+          clipped.Add(FindBoundary(curr, next, cellSet, cellSize));
+      } else if (nextIn) {
+        clipped.Add(FindBoundary(next, curr, cellSet, cellSize));
+      }
+    }
+    return clipped;
+  }
+
+  private static int NearestSiteIdx(Vector2 point, List<Vector2> sites) {
+    var best = 0;
+    var bestDist = float.MaxValue;
+    for (var i = 0; i < sites.Count; i++) {
+      var dx = point.X - sites[i].X;
+      var dy = point.Y - sites[i].Y;
+      var d = dx * dx + dy * dy;
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  private static bool SegSegIntersect(Vector2 a1, Vector2 a2, Vector2 b1, Vector2 b2, out Vector2 point) {
+    point = default;
+    var d1 = a2 - a1;
+    var d2 = b2 - b1;
+    var cross = d1.X * d2.Y - d1.Y * d2.X;
+    if (MathF.Abs(cross) < 1e-10f) return false;
+
+    var diff = b1 - a1;
+    var t = (diff.X * d2.Y - diff.Y * d2.X) / cross;
+    var u = (diff.X * d1.Y - diff.Y * d1.X) / cross;
+
+    if (t > 0.001f && t < 0.999f && u > 0.001f && u < 0.999f) {
+      point = a1 + d1 * t;
+      return true;
+    }
+    return false;
+  }
+
+  private static bool IsInIsland(Vector2 p, HashSet<(int x, int y)> cellSet, float cellSize) {
+    return cellSet.Contains(((int)MathF.Floor(p.X / cellSize), (int)MathF.Floor(p.Y / cellSize)));
+  }
+
+  private static Vector2 FindBoundary(Vector2 inside, Vector2 outside,
+    HashSet<(int x, int y)> cellSet, float cellSize) {
+    for (var i = 0; i < 16; i++) {
+      var mid = (inside + outside) * 0.5f;
+      if (IsInIsland(mid, cellSet, cellSize))
+        inside = mid;
+      else
+        outside = mid;
+    }
+    return inside;
+  }
+
+  private static float Dot(Vector2 a, Vector2 b) => a.X * b.X + a.Y * b.Y;
+
+  private static Vector2 BisectorIntersect(Vector2 a, Vector2 b, Vector2 planePoint, Vector2 planeNormal) {
+    var d = b - a;
+    var denom = Dot(d, planeNormal);
+    if (MathF.Abs(denom) < 1e-10f) return a;
+    var t = Dot(planePoint - a, planeNormal) / denom;
+    return a + d * t;
+  }
+
+  private static Vector2 PolygonCentroid(List<Vector2> polygon) {
+    float area = 0, cx = 0, cy = 0;
+    var n = polygon.Count;
+    for (var i = 0; i < n; i++) {
+      var curr = polygon[i];
+      var next = polygon[(i + 1) % n];
+      var cross = curr.X * next.Y - next.X * curr.Y;
+      area += cross;
+      cx += (curr.X + next.X) * cross;
+      cy += (curr.Y + next.Y) * cross;
+    }
+    area *= 0.5f;
+    if (MathF.Abs(area) < 1e-10f) {
+      var avg = Vector2.Zero;
+      foreach (var v in polygon) avg += v;
+      return avg / polygon.Count;
+    }
+    return new Vector2(cx / (6 * area), cy / (6 * area));
+  }
 }

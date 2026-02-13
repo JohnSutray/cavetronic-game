@@ -49,7 +49,7 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     // 5. Конвертация в мировые координаты
     var offsetX = chunkX * gridSize * _config.CellSize;
     var offsetY = chunkY * gridSize * _config.CellSize;
-
+    
     var worldContours = new List<List<Vector2>>();
     var allShards = new List<List<Vector2>>();
     var islandSeed = _config.Seed + chunkX * 1000 + chunkY;
@@ -94,18 +94,5 @@ public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
       }
     }
     return count;
-  }
-
-  private void GenerateRocks(int count) {
-    var random = new Random(42);
-    for (int i = 0; i < count; i++) {
-      float x = 32f + (float)random.NextDouble() * 64f;
-      float y = 32f + (float)random.NextDouble() * 64f;
-      float radius = 0.15f + (float)random.NextDouble() * 0.2f;
-
-      var rock = GameWorld.Physics.CreateBody(new Vector2(x, y), 0, BodyType.Dynamic);
-      var fixture = rock.CreateCircle(radius, 1f);
-      fixture.Restitution = 0.3f;
-    }
   }
 }
