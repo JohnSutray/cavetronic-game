@@ -8,8 +8,8 @@ public record IslandData(
 );
 
 public static class SimpleIslandTracer {
-  // Извлекает острова из сетки - каждый остров это контур + список клеток
-  public static List<IslandData> ExtractIslands(bool[,] grid, float cellSize) {
+  /// Извлекает острова из сетки в абсолютных мировых координатах
+  public static List<IslandData> ExtractIslands(bool[,] grid, int offsetX, int offsetY) {
     var width = grid.GetLength(0);
     var height = grid.GetLength(1);
     var islands = new List<IslandData>();
@@ -18,9 +18,10 @@ public static class SimpleIslandTracer {
     for (int x = 0; x < width; x++) {
       for (int y = 0; y < height; y++) {
         if (grid[x, y] && !visited[x, y]) {
-          var cells = FloodFill(grid, visited, x, y);
-          if (cells.Count >= 1) {
-            var contour = ExtractContour(cells, cellSize);
+          var localCells = FloodFill(grid, visited, x, y);
+          if (localCells.Count >= 1) {
+            var cells = localCells.Select(c => (c.x + offsetX, c.y + offsetY)).ToList();
+            var contour = ExtractContour(cells);
             islands.Add(new IslandData(contour, cells));
           }
         }
@@ -30,33 +31,27 @@ public static class SimpleIslandTracer {
     return islands;
   }
 
-  // Извлекает контур из набора клеток через edge tracing
-  public static List<Vector2> ExtractContour(List<(int x, int y)> cells, float cellSize) {
+  /// Извлекает контур из набора клеток через edge tracing
+  public static List<Vector2> ExtractContour(List<(int x, int y)> cells) {
     var cellSet = new HashSet<(int x, int y)>(cells);
-    
-    return ExtractContourFromSet(cells, cellSet, cellSize);
+    return ExtractContourFromSet(cells, cellSet);
   }
 
-  // Извлекает контур из набора клеток (с предвычисленным HashSet)
+  /// Извлекает контур из набора клеток (с предвычисленным HashSet)
   public static List<Vector2> ExtractContourFromSet(
     List<(int x, int y)> cells,
-    HashSet<(int x, int y)> cellSet,
-    float cellSize) {
+    HashSet<(int x, int y)> cellSet) {
     var edges = new List<(Vector2 p1, Vector2 p2)>();
 
     foreach (var (x, y) in cells) {
       if (!cellSet.Contains((x - 1, y)))
-        edges.Add((new Vector2(x * cellSize, y * cellSize),
-          new Vector2(x * cellSize, (y + 1) * cellSize)));
+        edges.Add((new Vector2(x, y), new Vector2(x, y + 1)));
       if (!cellSet.Contains((x + 1, y)))
-        edges.Add((new Vector2((x + 1) * cellSize, (y + 1) * cellSize),
-          new Vector2((x + 1) * cellSize, y * cellSize)));
+        edges.Add((new Vector2(x + 1, y + 1), new Vector2(x + 1, y)));
       if (!cellSet.Contains((x, y - 1)))
-        edges.Add((new Vector2((x + 1) * cellSize, y * cellSize),
-          new Vector2(x * cellSize, y * cellSize)));
+        edges.Add((new Vector2(x + 1, y), new Vector2(x, y)));
       if (!cellSet.Contains((x, y + 1)))
-        edges.Add((new Vector2(x * cellSize, (y + 1) * cellSize),
-          new Vector2((x + 1) * cellSize, (y + 1) * cellSize)));
+        edges.Add((new Vector2(x, y + 1), new Vector2(x + 1, y + 1)));
     }
 
     if (edges.Count == 0) {
@@ -65,10 +60,10 @@ public static class SimpleIslandTracer {
       var minY = cells.Min(c => c.y);
       var maxY = cells.Max(c => c.y);
       return [
-        new Vector2(minX * cellSize, minY * cellSize),
-        new Vector2((maxX + 1) * cellSize, minY * cellSize),
-        new Vector2((maxX + 1) * cellSize, (maxY + 1) * cellSize),
-        new Vector2(minX * cellSize, (maxY + 1) * cellSize)
+        new Vector2(minX, minY),
+        new Vector2(maxX + 1, minY),
+        new Vector2(maxX + 1, maxY + 1),
+        new Vector2(minX, maxY + 1)
       ];
     }
 
@@ -104,7 +99,7 @@ public static class SimpleIslandTracer {
 
   private static List<Vector2> TraceEdgeLoop(List<(Vector2 p1, Vector2 p2)> edges) {
     var contour = new List<Vector2>();
-    
+
     if (edges.Count == 0) {
       return contour;
     }
@@ -113,7 +108,7 @@ public static class SimpleIslandTracer {
     var edgeMap = new Dictionary<(int, int), List<int>>();
     for (var i = 0; i < edges.Count; i++) {
       var key = QuantizePoint(edges[i].p1);
-      
+
       if (!edgeMap.TryGetValue(key, out var list)) {
         list = [];
         edgeMap[key] = list;
@@ -151,7 +146,6 @@ public static class SimpleIslandTracer {
     return contour;
   }
 
-  // Квантует координату в целое число для ключа словаря (умножаем на 1000 для точности)
   private static (int, int) QuantizePoint(Vector2 p) =>
     ((int)MathF.Round(p.X * 1000), (int)MathF.Round(p.Y * 1000));
 

@@ -13,7 +13,6 @@ public class CaveGenerationConfig {
 
   // Chunk parameters
   public int ChunkSize = 64; // meters
-  public float CellSize = 2f; // meters per cell (увеличено для меньшей детализации)
 
   // Physics
   public float Friction = 0.7f;

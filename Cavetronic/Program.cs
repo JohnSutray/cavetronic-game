@@ -6,10 +6,22 @@ namespace Cavetronic;
 
 public class Program {
   public static void Main() {
+    StartClaudeCodeCaveGeneration();
+  }
+
+  static void StartClaudeCodeCaveGeneration() {
+    var gameWorld = new GameWorld();
+    
+    var caveGenerationSystem = new CaveGenerationSystem(gameWorld);
+    
+    caveGenerationSystem.Init();
+  }
+
+  static void StartDevModeGameLoop() {
     var gameWorld = new GameWorld();
 
     // Создаем entity с камерой
-    var cameraEntity = gameWorld.Ecs.Create(
+    gameWorld.Ecs.Create(
       new Position { X = 32f, Y = 32f }, // Центр мира (chunk 0,0)
       new CameraTarget()
     );

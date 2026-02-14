@@ -5,27 +5,25 @@ using PhysicsWorld = nkast.Aether.Physics2D.Dynamics.World;
 namespace Cavetronic.Generation;
 
 public class PhysicsBodyBuilder(PhysicsWorld physics, CaveGenerationConfig config) {
-  // Создаёт физическое тело из осколка через fan triangulation от центроида
-  public Body? CreateBodyFromShard(List<Vector2> shard) {
-    if (shard.Count < 3) {
-      return null;
-    }
+  // Создаёт физическое тело из ShapedShard через fan triangulation от центроида
+  public Body? CreateBodyFromShard(ShapedShard shard) {
+    if (shard.Polygon.Count < 3) return null;
 
-    var center = CalculateCenter(shard);
-    var body = physics.CreateBody(center, 0, BodyType.Static);
+    var body = physics.CreateBody(shard.Position, 0, BodyType.Static);
 
     try {
-      var local = shard.Select(v => v - center).ToList();
-
       // Fan triangulation от центроида: безопасно для любых полигонов, нет рекурсии
       var centroid = Vector2.Zero;
-      foreach (var v in local) centroid += v;
-      centroid /= local.Count;
+      foreach (var v in shard.Polygon) {
+        centroid += v;
+      }
+      centroid /= shard.Polygon.Count;
 
       var fixtureCount = 0;
-      for (var i = 0; i < local.Count; i++) {
-        var v1 = local[i];
-        var v2 = local[(i + 1) % local.Count];
+
+      for (var i = 0; i < shard.Polygon.Count; i++) {
+        var v1 = shard.Polygon[i];
+        var v2 = shard.Polygon[(i + 1) % shard.Polygon.Count];
         var tri = new Vertices { centroid, v1, v2 };
 
         // Проверяем площадь треугольника (пропускаем вырожденные)
@@ -53,13 +51,5 @@ public class PhysicsBodyBuilder(PhysicsWorld physics, CaveGenerationConfig confi
     }
 
     return body;
-  }
-
-  private static Vector2 CalculateCenter(List<Vector2> vertices) {
-    var sum = Vector2.Zero;
-    foreach (var v in vertices) {
-      sum += v;
-    }
-    return sum / vertices.Count;
   }
 }

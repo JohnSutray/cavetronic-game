@@ -51,178 +51,137 @@
 
 ### Генерация мира (ПОДРОБНО)
 
+**Единицы измерения:** 1 клетка grid = 1 метр в мире. Параметр `CellSize` удалён — grid-координаты = мировые координаты.
+
 Генерация chunk'а происходит в `CaveGenerationSystem.GenerateChunk()` через следующие этапы:
 
 #### Этап 1: Генерация шума (NoiseGenerator)
 - **Класс:** `NoiseGenerator` использует `FastNoiseLite` (OpenSimplex2)
-- **Параметры:** `Seed`, `Frequency`, `Octaves`, `Threshold`
-- **Вход:** координаты chunk'а (chunkX, chunkY), размер grid'а
-- **Выход:** `float[,] rawNoise` - значения от -1 до 1
+- **Параметры:** `Seed=12345`, `Frequency=0.02`, `Octaves=4`, `Threshold=0.45`
+- **Вход:** координаты chunk'а (chunkX, chunkY), размер grid'а (ChunkSize=64)
+- **Выход:** `float[,] rawNoise` — значения от -1 до 1
 - **Конвертация:** `grid[x,y] = rawNoise[x,y] < Threshold` → `true` = solid, `false` = empty
 
 #### Этап 2: Сглаживание (Cellular Automata)
 - **Класс:** `CellularAutomata.Smooth()`
-- **Параметры:**
-  - `SmoothIterations = 2` - количество итераций
-  - `SolidNeighborThreshold = 5` - порог для превращения клетки в solid
+- **Параметры:** `SmoothIterations=2`, `SolidNeighborThreshold=5`
 - **Алгоритм:** Каждая итерация проверяет 8 соседей, если ≥5 solid → клетка становится solid
 - **Out-of-bounds:** Границы chunk'а считаются solid (для связности между chunk'ами)
-- **Результат:** Более органичные формы пещер
 
-**ВАЖНО: Проблема SmoothIterations**
-- `SmoothIterations = 1` - работает нормально
-- `SmoothIterations = 2` - может вызывать stack overflow в физике (сложные контуры)
-- `SmoothIterations = 4+` - работает (контуры проще)
-- Текущее значение: 2 (с защитой от stack overflow)
-
-#### Этап 3: Заполнение пустот
-- **Метод:** `CellularAutomata.FillEnclosedVoids()`
-- **Включено:** `fillIsolatedVoids: true` в `Smooth()`
+#### Этап 3: Заполнение изолированных пустот
+- **Метод:** `CellularAutomata.FillEnclosedVoids()` (включено: `fillIsolatedVoids: true`)
 - **Алгоритм:**
   1. Flood fill находит все empty острова (связные пустоты)
-  2. Для каждой пустоты проверяет, касается ли она границ chunk'а
-  3. Если НЕ касается - заполняет (превращает в solid)
-  4. Маркирует как посещённые
+  2. Если пустота НЕ касается границ chunk'а → заполняет solid
 - **Цель:** Убрать изолированные дырки внутри solid областей
-
-**ВАЖНО: Holes (дырки) не поддерживаются!**
-- Контур обходит только внешнюю границу острова
-- Если внутри solid есть empty клетки → игнорируются
-- Поэтому этап 3 (заполнение пустот) критичен
+- **Почему критично:** SimpleIslandTracer обходит только внешнюю границу, holes не поддерживаются
 
 #### Этап 4: Извлечение островов (SimpleIslandTracer)
-- **Класс:** `SimpleIslandTracer.ExtractIslands(smoothedGrid, cellSize)`
-- **Возвращает:** `List<IslandData>` где `IslandData(Contour, Cells)` — контур + список клеток
+- **Класс:** `SimpleIslandTracer.ExtractIslands(grid)`
+- **Возвращает:** `List<IslandData>` где `IslandData(Contour, Cells)`
 - **Алгоритм:**
-  1. **Flood fill** находит все связные solid регионы (острова) → `List<(int x, int y)> Cells`
-  2. Для каждого острова создаёт граничные **рёбра** (edges) через `ExtractContour`:
-     - Ребро = сторона клетки, которая граничит с empty
-     - 4 направления: left, right, top, bottom
+  1. **Flood fill** → `List<(int x, int y)> Cells` (связные solid регионы)
+  2. **ExtractContour** → граничные рёбра (сторона клетки, граничащая с empty)
      - Рёбра направлены по часовой стрелке вокруг solid (в y-down)
-  3. **TraceEdgeLoop** обходит рёбра в правильном порядке:
-     - Использует словарь для O(1) поиска следующего ребра (квантование координат)
-     - Строит замкнутый контур
-  4. **SimplifyContour** удаляет вершины на прямых линиях:
-     - Проверяет коллинеарность трёх последовательных точек
-     - Если векторное произведение < 0.001 → удаляет среднюю точку
-- **Публичные методы для ShardGenerator:**
-  - `ExtractContour(cells, cellSize)` — контур из списка клеток
-  - `ExtractContourFromSet(cells, cellSet, cellSize)` — контур с предвычисленным HashSet
-- **Выход:** `List<IslandData>` — контуры + клетки в локальных координатах chunk'а
-- **Единицы:** cellSize (физические единицы)
-
+     - Координаты целочисленные (grid = мировые): `new Vector2(x, y)`, `new Vector2(x+1, y+1)`
+  3. **TraceEdgeLoop** → обход рёбер через словарь (O(1) поиск, квантование *1000)
+  4. **SimplifyContour** → удаление коллинеарных вершин (cross < 0.001)
+- **Публичные методы:**
+  - `ExtractContour(cells)` — контур из списка клеток
+  - `ExtractContourFromSet(cells, cellSet)` — контур с предвычисленным HashSet
 
 #### Этап 5: Конвертация в мировые координаты
-- **Смещение:** `offset = (chunkX * ChunkSize * CellSize, chunkY * ChunkSize * CellSize)`
-- **Трансформация:** `worldIsland = island.Select(p => p + offset)`
-- **Результат:** Контуры в мировых координатах
+- **Смещение:** `offset = (chunkX * ChunkSize, chunkY * ChunkSize)`
+- **Трансформация:** каждая точка контура/шарда += offset
 
 #### Этап 6: Разбиение на осколки (ShardGenerator) — Geometric Voronoi
-- **Класс:** `ShardGenerator.CreateShards(islandCells, cellSize, seed)`
-- **Зачем:** В физическом мире острова состоят из шардов, которые можно будет отломать от этого острова
-- **Алгоритм (Geometric Voronoi через пересечение полуплоскостей):**
-  1. Получает список клеток острова из `SimpleIslandTracer` (через `IslandData.Cells`)
-  2. Генерирует N случайных точек-сайтов внутри острова (мировые координаты):
-     - `N = area / 100` (1 точка на 100 кв.единиц), max 20
-     - Seed для воспроизводимости: `baseSeed + chunkX * 1000 + chunkY`
-  3. **Lloyd's relaxation** (2 итерации) — сдвигает сайты к центроидам ячеек для равномерности
-  4. Вычисляет ячейки Вороного через **пересечение полуплоскостей** (Sutherland-Hodgman):
-     - Каждая ячейка начинается как большой прямоугольник
-     - Обрезается биссектрисой с каждым другим сайтом (оставляет ближнюю половину)
-     - Результат — выпуклый полигон
-  5. Обрезает ячейки по границе острова (бинарный поиск пересечения с grid)
-- **Результат:** Выпуклые полигоны как медовые соты, соседние шарды делят общие вершины
-- **Выход:** `List<List<Vector2>>` - список осколков в локальных координатах chunk'а
-
-**Почему Geometric Voronoi:**
-- S-H работает для обрезки выпуклых полигонов полуплоскостями (биссектрисами)
-- Каждая ячейка гарантированно выпуклая
-- Соседние ячейки делят общие рёбра (биссектрисы)
-- Нет ступенчатости — границы шардов это прямые линии
+- **Класс:** `ShardGenerator.CreateShards(islandCells, seed)`
+- **Зачем:** Острова состоят из шардов, которые можно будет отломать
+- **Алгоритм:**
+  1. Генерирует N случайных сайтов внутри острова:
+     - `N = islandCells.Count / 100`, clamp [3..20]
+     - Seed: `baseSeed + chunkX * 1000 + chunkY`, инкрементируется для каждого острова
+  2. **Lloyd's relaxation** (2 итерации):
+     - Вычисляет Voronoi-ячейки → обрезает по grid → сдвигает сайт к центроиду ячейки
+     - Делает ячейки более равномерными (как медовые соты)
+  3. **Вычисление Voronoi-ячеек** через пересечение полуплоскостей:
+     - Каждая ячейка = большой прямоугольник (margin = max(w,h) + 100)
+     - Обрезается биссектрисой с каждым другим сайтом (Sutherland-Hodgman)
+     - Биссектриса: `mid = (siteA + siteB) / 2`, `normal = siteA - siteB`
+     - Результат — гарантированно выпуклый полигон
+  4. **Обрезка по контуру острова** (`ClipCellWithContour`):
+     - Внутренние ячейки (все вершины внутри острова) → возвращаются как есть
+     - Граничные ячейки — собираются 3 типа точек:
+       - **Voronoi-вершины** внутри острова (`IsInIsland` через grid HashSet)
+       - **Контурные вершины** острова, ближайшие к этому сайту (`NearestSiteIdx`)
+       - **Точки пересечения** рёбер Voronoi-ячейки с рёбрами контура (`SegSegIntersect`)
+     - Дедупликация (dist² < 0.01), сортировка по углу вокруг сайта
+- **Результат:**
+  - Внутренние границы — гладкие прямые линии (Voronoi-биссектрисы)
+  - Внешние границы — повторяют контур острова (все вершины контура задействованы)
+  - Соседние шарды делят общие вершины
+- **Вспомогательные методы:**
+  - `SimpleClipToIsland` — быстрая обрезка для Lloyd's (бинарный поиск, без контура)
+  - `IsInIsland(p)` → `cellSet.Contains(Floor(p.X), Floor(p.Y))`
 
 #### Этап 7: Создание физических тел (PhysicsBodyBuilder)
 - **Класс:** `PhysicsBodyBuilder.CreateBodyFromShard(shard)`
-- **Вход:** Выпуклый осколок (Voronoi ячейка)
 - **Алгоритм:**
-  1. Вычисляет центр осколка
-  2. Создаёт статическое тело в центре
-  3. Конвертирует вершины в локальные координаты (относительно центра)
-  4. **Fan triangulation** от центроида: разбивает на треугольники (centroid, v[i], v[i+1])
-  5. Каждый треугольник → отдельный polygon fixture
-  6. Настройки: `Density`, `Friction`, `Restitution`
-- **Защита:**
-  - Если осколок < 3 вершины → пропускаем
-  - Вырожденные треугольники (cross < 0.01) → пропускаем
-  - try-catch на случай ошибок физики
+  1. Вычисляет центр осколка → создаёт статическое тело
+  2. **Fan triangulation** от центроида: `(centroid, v[i], v[i+1])` для каждого ребра
+  3. Каждый треугольник → polygon fixture с `Density`, `Friction`, `Restitution`
+- **Защита:** skip < 3 вершин, skip вырожденных (cross < 0.01), try-catch
 
-**КРИТИЧНО: Bayazit НЕ используется**
-- Bayazit рекурсивно триангулирует → stack overflow на сложных контурах
-- Fan triangulation не рекурсивен, работает с любым количеством вершин
+**КРИТИЧНО: Bayazit НЕ используется** — рекурсивная триангуляция вызывает stack overflow. Fan triangulation не рекурсивен.
 
 #### Этап 8: Визуализация (FullMapVisualizer)
-- **Метод:** `AddChunk(chunkX, chunkY, rawNoise, grid, smoothedGrid, contours, shards)`
-- **Сохраняет:** Все промежуточные данные для каждого chunk'а
-- **SaveFullMap:** Создаёт `full_map.png` с 5 кадрами:
-  1. **Raw noise** - серый градиент + зелёные маркеры solid зон (threshold)
-  2. **Boolean grid** - чёрное (solid), белое (empty) после threshold
-  3. **Smoothed** - чёрное (solid), белое (empty) после CA
-  4. **Contours** - smoothed grid + красные линии контуров островов
-  5. **Shards** - smoothed grid + зелёные линии осколков
-- **Масштаб:** 8 пикселей на клетку (64x64 chunk → 512x512 пикселей)
-- **Границы:** Красные линии между chunk'ами
-- **Цвета:**
-  - Чёрный = SOLID (стены)
-  - Белый = EMPTY (пещеры)
-  - Красный = контуры островов
-  - Зелёный = осколки (shards)
+- **SaveFullMap:** `full_map.png` — 5 кадров горизонтально:
+  1. **Raw noise** — серый градиент + зелёные маркеры solid (threshold)
+  2. **Boolean grid** — чёрный=solid, белый=empty
+  3. **Smoothed** — после CA
+  4. **Contours** — smoothed + красные линии контуров
+  5. **Shards** — smoothed + зелёные линии осколков
+- **Масштаб:** 8 пикселей/клетка (64×64 chunk → 512×512 пикселей)
 
 ### Классы и файлы генерации
 
-- **CaveGenerationConfig.cs** - параметры генерации (Seed, Frequency, SmoothIterations, etc)
-- **NoiseGenerator.cs** - обёртка над FastNoiseLite
-- **CellularAutomata.cs** - сглаживание + заполнение пустот
-- **SimpleIslandTracer.cs** - извлечение контуров островов (flood fill + edge tracing)
-- **ShardGenerator.cs** - разбиение островов на осколки (random points)
-- **PhysicsBodyBuilder.cs** - создание физических тел из осколков
-- **FullMapVisualizer.cs** - визуализация всех этапов (5 кадров)
-- **CaveGenerationSystem.cs** - главный класс, координирует все этапы
+| Файл | Назначение |
+|------|-----------|
+| `CaveGenerationConfig.cs` | Параметры: Seed, Frequency, Octaves, Threshold, SmoothIterations, ChunkSize, Friction, Restitution, Density |
+| `NoiseGenerator.cs` | Обёртка над FastNoiseLite |
+| `CellularAutomata.cs` | Сглаживание + заполнение изолированных пустот |
+| `SimpleIslandTracer.cs` | Flood fill → edge tracing → SimplifyContour. Возвращает `List<IslandData>` |
+| `ShardGenerator.cs` | Geometric Voronoi (half-plane intersection) + Lloyd's relaxation + clip to contour |
+| `PhysicsBodyBuilder.cs` | Fan triangulation → polygon fixtures |
+| `FullMapVisualizer.cs` | 5-кадровая визуализация всех этапов |
+| `CaveGenerationSystem.cs` | Координатор: вызывает все этапы для каждого chunk'а |
 
 ### Известные проблемы и решения
 
-**1. Stack Overflow в Bayazit триangulation**
-- **Причина:** Сложные контуры (>100 вершин) вызывают бесконечную рекурсию
-- **Решение:** Разбиение на осколки ДО физики, передача готовых выпуклых полигонов
+**1. Bayazit stack overflow**
+- Рекурсивная триангуляция падает на сложных контурах
+- Решение: fan triangulation от центроида (нерекурсивный)
 
-**2. Holes (дырки) в solid областях**
-- **Причина:** SimpleIslandTracer обходит только внешнюю границу, не поддерживает holes
-- **Решение:** FillEnclosedVoids заполняет изолированные пустоты (касаются границ → не заполняются)
-- **Ограничение:** Большинство пустот касаются границ chunk'а, эффект минимальный
+**2. Holes не поддерживаются**
+- SimpleIslandTracer обходит только внешнюю границу
+- Решение: `FillEnclosedVoids` заполняет изолированные пустоты перед извлечением
 
-**3. SmoothIterations = 2 vs 1**
-- **Проблема:** При 2 итерациях создаются более сложные контуры → больше вершин
-- **Решение:** Защита от stack overflow + разбиение на осколки
-- **Текущее:** SmoothIterations = 2 работает с защитой
-
-**4. Seed воспроизводимость**
-- **Важно:** Каждый chunk использует `Seed + chunkX * 1000 + chunkY` для осколков
-- **Результат:** Одинаковый seed → одинаковый мир
+**3. Seed воспроизводимость**
+- Каждый chunk: `Seed + chunkX * 1000 + chunkY`, инкрементируется для каждого острова
+- Одинаковый seed → одинаковый мир
 
 ### Debug инструменты
 
-**Детальное изображение chunk'а:**
 ```csharp
 _visualizer.SaveChunkDebug(chunkX, chunkY);
 ```
-- Создаёт `chunk_X_Y_debug.png` (1024x1024, 16 пикселей/клетка)
-- Красная рамка = границы chunk'а
-- Показывает, как пустоты касаются границ
+- Создаёт `chunk_X_Y_debug.png` (1024×1024, 16 пикселей/клетка)
 
 **Консольный вывод:**
 ```
-[CA] Found X voids, filled Y isolated voids
-  [CA] Kept border void: N cells
-  [CA] Filled isolated void: N cells
-[Shards] Skipped complex island: N vertices
+[CA] Kept border void: N cells
+[CA] Filled isolated void: N cells
+[CA] Total: X voids, filled Y, kept Z
 ```
 
 ## Управление

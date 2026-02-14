@@ -6,11 +6,18 @@ namespace Cavetronic.Generation;
 public class FullMapVisualizer(CaveGenerationConfig config) {
   private readonly Dictionary<(int x, int y), ChunkData> _chunks = new();
 
-  public void AddChunk(int chunkX, int chunkY, float[,] rawNoise, bool[,] boolGrid, bool[,] smoothedGrid, List<List<Vector2>> contours, List<List<Vector2>> shards) {
+  public void AddChunk(int chunkX, int chunkY, Chunk chunk, ChunkDebugData debugData) {
+    // Извлекаем контуры и шарды из Chunk (уже в абсолютных координатах)
+    var contours = chunk.Islands.Select(i => i.Island.Contour).ToList();
+    var shards = chunk.Islands
+      .SelectMany(i => i.Shards)
+      .Select(s => s.Polygon.Select(p => p + s.Position).ToList())
+      .ToList();
+
     _chunks[(chunkX, chunkY)] = new ChunkData {
-      RawNoise = rawNoise,
-      BoolGrid = boolGrid,
-      SmoothedGrid = smoothedGrid,
+      RawNoise = debugData.RawNoise,
+      BoolGrid = debugData.BoolGrid,
+      SmoothedGrid = debugData.SmoothedGrid,
       Contours = contours,
       Shards = shards
     };
@@ -60,7 +67,7 @@ public class FullMapVisualizer(CaveGenerationConfig config) {
 
       // Контуры уже в мировых координатах (в физических единицах), преобразуем в локальные для отрисовки
       var localContours = data.Contours.Select(contour =>
-        contour.Select(p => p - new Vector2(chunkX * config.ChunkSize * config.CellSize, chunkY * config.ChunkSize * config.CellSize)).ToList()
+        contour.Select(p => p - new Vector2(chunkX * config.ChunkSize, chunkY * config.ChunkSize)).ToList()
       ).ToList();
 
       DrawContoursToImage(ref image, localContours, offsetX + fullWidth * 3, offsetY, cellPixelSize);
@@ -69,7 +76,7 @@ public class FullMapVisualizer(CaveGenerationConfig config) {
       DrawBoolGridToImage(ref image, data.SmoothedGrid, offsetX + fullWidth * 4, offsetY, cellPixelSize);
 
       var localShards = data.Shards.Select(shard =>
-        shard.Select(p => p - new Vector2(chunkX * config.ChunkSize * config.CellSize, chunkY * config.ChunkSize * config.CellSize)).ToList()
+        shard.Select(p => p - new Vector2(chunkX * config.ChunkSize, chunkY * config.ChunkSize)).ToList()
       ).ToList();
 
       DrawShardsToImage(ref image, localShards, offsetX + fullWidth * 4, offsetY, cellPixelSize);
@@ -147,10 +154,10 @@ public class FullMapVisualizer(CaveGenerationConfig config) {
         var end = contour[(i + 1) % contour.Count];
 
         // Конвертируем физические единицы в пиксели (cellSize пикселей на физическую единицу)
-        var x1 = (int)(start.X / config.CellSize * cellSize) + offsetX;
-        var y1 = (int)(start.Y / config.CellSize * cellSize) + offsetY;
-        var x2 = (int)(end.X / config.CellSize * cellSize) + offsetX;
-        var y2 = (int)(end.Y / config.CellSize * cellSize) + offsetY;
+        var x1 = (int)(start.X * cellSize) + offsetX;
+        var y1 = (int)(start.Y * cellSize) + offsetY;
+        var x2 = (int)(end.X * cellSize) + offsetX;
+        var y2 = (int)(end.Y * cellSize) + offsetY;
 
         // Рисуем толстую яркую линию (красный для контраста с чёрным solid)
         var lineColor = new Color(255, 0, 0, 255); // Яркий красный
@@ -170,10 +177,10 @@ public class FullMapVisualizer(CaveGenerationConfig config) {
         var start = shard[i];
         var end = shard[(i + 1) % shard.Count];
 
-        var x1 = (int)(start.X / config.CellSize * cellSize) + offsetX;
-        var y1 = (int)(start.Y / config.CellSize * cellSize) + offsetY;
-        var x2 = (int)(end.X / config.CellSize * cellSize) + offsetX;
-        var y2 = (int)(end.Y / config.CellSize * cellSize) + offsetY;
+        var x1 = (int)(start.X * cellSize) + offsetX;
+        var y1 = (int)(start.Y * cellSize) + offsetY;
+        var x2 = (int)(end.X * cellSize) + offsetX;
+        var y2 = (int)(end.Y * cellSize) + offsetY;
 
         // Рисуем линии осколков зелёным (толстые, как контуры)
         var lineColor = new Color(0, 255, 0, 255); // Яркий зелёный

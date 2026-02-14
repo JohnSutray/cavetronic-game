@@ -4,63 +4,60 @@ namespace Cavetronic.Generation;
 
 /// Разбивает остров на выпуклые осколки через диаграмму Вороного
 public static class ShardGenerator {
-  public static List<List<Vector2>> CreateShards(
-    List<(int x, int y)> islandCells,
-    float cellSize,
-    int seed) {
-    if (islandCells.Count < 3) return [];
+  public static ShardsData CreateShards(IslandData island, int seed) {
+    if (island.Cells.Count < 3) return new ShardsData(island, []);
 
     var random = new Random(seed);
-    var cellSet = new HashSet<(int x, int y)>(islandCells);
+    var cellSet = new HashSet<(int x, int y)>(island.Cells);
 
-    var minGX = islandCells.Min(c => c.x);
-    var maxGX = islandCells.Max(c => c.x);
-    var minGY = islandCells.Min(c => c.y);
-    var maxGY = islandCells.Max(c => c.y);
+    var minGX = island.Cells.Min(c => c.x);
+    var maxGX = island.Cells.Max(c => c.x);
+    var minGY = island.Cells.Min(c => c.y);
+    var maxGY = island.Cells.Max(c => c.y);
 
-    var area = islandCells.Count * cellSize * cellSize;
-    var numSites = Math.Clamp((int)(area / 100f), 3, 20);
+    var numSites = Math.Clamp(island.Cells.Count / 100, 3, 20);
 
-    // Генерируем случайные сайты внутри острова (мировые координаты)
+    // Генерируем случайные сайты внутри острова
     var sites = new List<Vector2>();
     var attempts = 0;
     while (sites.Count < numSites && attempts < numSites * 100) {
       var gx = minGX + random.NextDouble() * (maxGX - minGX + 1);
       var gy = minGY + random.NextDouble() * (maxGY - minGY + 1);
       if (cellSet.Contains(((int)gx, (int)gy))) {
-        sites.Add(new Vector2((float)(gx * cellSize), (float)(gy * cellSize)));
+        sites.Add(new Vector2((float)gx, (float)gy));
       }
       attempts++;
     }
 
     if (sites.Count < 2)
-      return [SimpleIslandTracer.ExtractContour(islandCells, cellSize)];
+      return new ShardsData(island, [island.Contour]);
 
     // Lloyd's relaxation — делает ячейки более равномерными (как соты)
     for (var iter = 0; iter < 2; iter++) {
       var cells = ComputeVoronoiCells(sites);
       for (var i = 0; i < sites.Count; i++) {
-        var clipped = SimpleClipToIsland(cells[i], cellSet, cellSize);
+        var clipped = SimpleClipToIsland(cells[i], cellSet);
         if (clipped.Count < 3) continue;
         var centroid = PolygonCentroid(clipped);
-        if (IsInIsland(centroid, cellSet, cellSize))
+        if (IsInIsland(centroid, cellSet))
           sites[i] = centroid;
       }
     }
 
-    // Контур острова для финальной обрезки — все его точки должны войти в шарды
-    var contour = SimpleIslandTracer.ExtractContour(islandCells, cellSize);
+    // Контур острова уже есть в IslandData — переиспользуем
+    var contour = island.Contour;
 
     // Финальное вычисление + обрезка по контуру острова с сохранением всех точек контура
     var finalCells = ComputeVoronoiCells(sites);
     var shards = new List<List<Vector2>>();
     for (var i = 0; i < sites.Count; i++) {
-      var clipped = ClipCellWithContour(finalCells[i], contour, i, sites, cellSet, cellSize);
+      var clipped = ClipCellWithContour(finalCells[i], contour, i, sites, cellSet);
       if (clipped.Count >= 3)
         shards.Add(clipped);
     }
 
-    return shards.Count > 0 ? shards : [contour];
+    var result = shards.Count > 0 ? shards : [contour];
+    return new ShardsData(island, result);
   }
 
   /// Вычисляет ячейки Вороного через пересечение полуплоскостей
@@ -122,19 +119,18 @@ public static class ShardGenerator {
     List<Vector2> contour,
     int siteIdx,
     List<Vector2> sites,
-    HashSet<(int x, int y)> cellSet,
-    float cellSize) {
+    HashSet<(int x, int y)> cellSet) {
     if (cell.Count < 3 || contour.Count < 3) return cell;
 
     // Если все вершины ячейки внутри острова — внутренняя ячейка, контур не нужен
-    if (cell.All(v => IsInIsland(v, cellSet, cellSize))) return cell;
+    if (cell.All(v => IsInIsland(v, cellSet))) return cell;
 
     var center = sites[siteIdx];
     var points = new List<Vector2>();
 
     // 1. Вершины Voronoi-ячейки, которые внутри острова
     foreach (var v in cell) {
-      if (IsInIsland(v, cellSet, cellSize))
+      if (IsInIsland(v, cellSet))
         points.Add(v);
     }
 
@@ -188,10 +184,9 @@ public static class ShardGenerator {
   /// Простая обрезка для Lloyd's relaxation (без контура)
   private static List<Vector2> SimpleClipToIsland(
     List<Vector2> cell,
-    HashSet<(int x, int y)> cellSet,
-    float cellSize) {
+    HashSet<(int x, int y)> cellSet) {
     if (cell.Count < 3) return cell;
-    if (cell.All(v => IsInIsland(v, cellSet, cellSize))) return cell;
+    if (cell.All(v => IsInIsland(v, cellSet))) return cell;
 
     var clipped = new List<Vector2>();
     var n = cell.Count;
@@ -199,15 +194,15 @@ public static class ShardGenerator {
     for (var i = 0; i < n; i++) {
       var curr = cell[i];
       var next = cell[(i + 1) % n];
-      var currIn = IsInIsland(curr, cellSet, cellSize);
-      var nextIn = IsInIsland(next, cellSet, cellSize);
+      var currIn = IsInIsland(curr, cellSet);
+      var nextIn = IsInIsland(next, cellSet);
 
       if (currIn) {
         clipped.Add(curr);
         if (!nextIn)
-          clipped.Add(FindBoundary(curr, next, cellSet, cellSize));
+          clipped.Add(FindBoundary(curr, next, cellSet));
       } else if (nextIn) {
-        clipped.Add(FindBoundary(next, curr, cellSet, cellSize));
+        clipped.Add(FindBoundary(next, curr, cellSet));
       }
     }
     return clipped;
@@ -246,15 +241,14 @@ public static class ShardGenerator {
     return false;
   }
 
-  private static bool IsInIsland(Vector2 p, HashSet<(int x, int y)> cellSet, float cellSize) {
-    return cellSet.Contains(((int)MathF.Floor(p.X / cellSize), (int)MathF.Floor(p.Y / cellSize)));
+  private static bool IsInIsland(Vector2 p, HashSet<(int x, int y)> cellSet) {
+    return cellSet.Contains(((int)MathF.Floor(p.X), (int)MathF.Floor(p.Y)));
   }
 
-  private static Vector2 FindBoundary(Vector2 inside, Vector2 outside,
-    HashSet<(int x, int y)> cellSet, float cellSize) {
+  private static Vector2 FindBoundary(Vector2 inside, Vector2 outside, HashSet<(int x, int y)> cellSet) {
     for (var i = 0; i < 16; i++) {
       var mid = (inside + outside) * 0.5f;
-      if (IsInIsland(mid, cellSet, cellSize))
+      if (IsInIsland(mid, cellSet))
         inside = mid;
       else
         outside = mid;
