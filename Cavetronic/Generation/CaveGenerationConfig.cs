@@ -12,7 +12,11 @@ public class CaveGenerationConfig {
   public int SolidNeighborThreshold = 5;
 
   // Chunk parameters
-  public int ChunkSize = 64; // meters
+  public int ChunkSize = 128; // meters
+
+  // Shard filtering
+  public float MinShardArea = 4f;
+  public float ShardEnclosedThreshold = 0.2f; // доля площади меньшего шарда внутри большего для удаления
 
   // Physics
   public float Friction = 0.7f;

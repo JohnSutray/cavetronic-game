@@ -6,7 +6,7 @@ namespace Cavetronic;
 
 public class Program {
   public static void Main() {
-    StartClaudeCodeCaveGeneration();
+    StartDevModeGameLoop();
   }
 
   static void StartClaudeCodeCaveGeneration() {

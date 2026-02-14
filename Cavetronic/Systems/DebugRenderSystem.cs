@@ -5,7 +5,7 @@ using Raylib_cs;
 namespace Cavetronic.Systems;
 
 public class DebugRenderSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
-  private const float LineThickness = 0.1f; // Толщина линий в метрах
+  private const float LineThickness = 0.3f; // Толщина линий в метрах
   private readonly Dictionary<Body, Color> _bodyColors = new();
   private int _colorIndex;
 

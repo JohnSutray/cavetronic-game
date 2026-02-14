@@ -124,15 +124,32 @@
   - `SimpleClipToIsland` — быстрая обрезка для Lloyd's (бинарный поиск, без контура)
   - `IsInIsland(p)` → `cellSet.Contains(Floor(p.X), Floor(p.Y))`
 
+#### Этап 6.5: Постобработка шардов (ChunkGenerator)
+
+После Voronoi-шардинга и shaping'а шарды проходят через цепочку постобработки:
+
+1. **EnsureConvexShards** — разбивает невыпуклые шарды на выпуклые части
+   - Итеративный diagonal-split: находит reflex-вершину → проводит диагональ к ближайшей валидной вершине → разрезает полигон на две части → повторяет
+   - Валидация диагонали: не пересекает рёбра полигона + midpoint внутри полигона (ray casting)
+   - Fallback: Earclip триангуляция из Aether (`Triangulate.ConvexPartition`) для ~5% сложных случаев
+   - **Bayazit НЕ используется** — `StackOverflowException` убивает процесс, нельзя поймать через try-catch
+   - Декомпозеры Aether (`BayazitDecomposer`, `EarclipDecomposer`) — `internal`, доступ только через `Triangulate.ConvexPartition`
+
+2. **RemoveEnclosedShards** — удаляет шарды, погружённые внутрь большего шарда
+   - Для каждой пары (меньший, больший): S-H клиппинг меньшего по большему → площадь пересечения
+   - Если `площадь_пересечения / площадь_меньшего >= ShardEnclosedThreshold` → удаляем меньший
+   - Параметр: `CaveGenerationConfig.ShardEnclosedThreshold` (по умолчанию 0.2)
+
+3. **FilterRectangles** — удаляет прямоугольные артефакты
+   - Полигон считается прямоугольником: ровно 4 вершины + все углы ≈ 90° (|cos| < 0.1)
+
+4. **FilterSmallShards** — удаляет шарды с площадью ниже порога
+   - Параметр: `CaveGenerationConfig.MinShardArea` (по умолчанию 4)
+
 #### Этап 7: Создание физических тел (PhysicsBodyBuilder)
 - **Класс:** `PhysicsBodyBuilder.CreateBodyFromShard(shard)`
-- **Алгоритм:**
-  1. Вычисляет центр осколка → создаёт статическое тело
-  2. **Fan triangulation** от центроида: `(centroid, v[i], v[i+1])` для каждого ребра
-  3. Каждый треугольник → polygon fixture с `Density`, `Friction`, `Restitution`
-- **Защита:** skip < 3 вершин, skip вырожденных (cross < 0.01), try-catch
-
-**КРИТИЧНО: Bayazit НЕ используется** — рекурсивная триангуляция вызывает stack overflow. Fan triangulation не рекурсивен.
+- **Алгоритм:** Все шарды гарантированно выпуклые после EnsureConvexShards → одна фикстура `body.CreatePolygon(vertices, density)` на шард
+- **Защита:** skip < 3 вершин, try-catch
 
 #### Этап 8: Визуализация (FullMapVisualizer)
 - **SaveFullMap:** `full_map.png` — 5 кадров горизонтально:
@@ -147,20 +164,21 @@
 
 | Файл | Назначение |
 |------|-----------|
-| `CaveGenerationConfig.cs` | Параметры: Seed, Frequency, Octaves, Threshold, SmoothIterations, ChunkSize, Friction, Restitution, Density |
+| `CaveGenerationConfig.cs` | Параметры: Seed, Frequency, Octaves, Threshold, SmoothIterations, ChunkSize, MinShardArea, ShardEnclosedThreshold, Friction, Restitution, Density |
 | `NoiseGenerator.cs` | Обёртка над FastNoiseLite |
 | `CellularAutomata.cs` | Сглаживание + заполнение изолированных пустот |
 | `SimpleIslandTracer.cs` | Flood fill → edge tracing → SimplifyContour. Возвращает `List<IslandData>` |
 | `ShardGenerator.cs` | Geometric Voronoi (half-plane intersection) + Lloyd's relaxation + clip to contour |
-| `PhysicsBodyBuilder.cs` | Fan triangulation → polygon fixtures |
+| `PhysicsBodyBuilder.cs` | Одна выпуклая фикстура на шард |
 | `FullMapVisualizer.cs` | 5-кадровая визуализация всех этапов |
 | `CaveGenerationSystem.cs` | Координатор: вызывает все этапы для каждого chunk'а |
 
 ### Известные проблемы и решения
 
 **1. Bayazit stack overflow**
-- Рекурсивная триангуляция падает на сложных контурах
-- Решение: fan triangulation от центроида (нерекурсивный)
+- `StackOverflowException` — нельзя поймать через try-catch в .NET, убивает процесс
+- Падает и на полных контурах, и на шардах
+- Решение: свой итеративный diagonal-split + Earclip fallback
 
 **2. Holes не поддерживаются**
 - SimpleIslandTracer обходит только внешнюю границу
