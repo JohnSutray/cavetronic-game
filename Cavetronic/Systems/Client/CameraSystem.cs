@@ -1,9 +1,8 @@
 using System.Numerics;
 using Arch.Core;
-using Arch.Core.Extensions;
 using Raylib_cs;
 
-namespace Cavetronic.Systems;
+namespace Cavetronic.Systems.Client;
 
 public class CameraSystem : EcsSystem {
   public Camera2D Camera;
@@ -25,13 +24,11 @@ public class CameraSystem : EcsSystem {
 
   public override void Tick(float dt) {
     // Находим entity с CameraTarget и обновляем камеру (в метрах)
-    GameWorld.Ecs.Query(in _cameraTargetQuery, (ref Position pos) => {
-      Camera.Target = new Vector2(pos.X, pos.Y);
-    });
+    GameWorld.Ecs.Query(in _cameraTargetQuery, (ref Position pos) => { Camera.Target = new Vector2(pos.X, pos.Y); });
 
     // Управление зумом колесиком мыши
     float wheel = Raylib.GetMouseWheelMove();
-    
+
     if (wheel != 0) {
       _userZoom += wheel * 0.1f;
       _userZoom = Math.Clamp(_userZoom, MinZoom, MaxZoom);

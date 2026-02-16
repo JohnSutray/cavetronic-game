@@ -6,9 +6,9 @@ namespace Cavetronic.Serialization;
 public class ComponentPacker<T> where T : struct {
   public void Pack(World world, MemoryStream stream) {
     var list = new List<(int NetId, T Component)>();
-    var query = new QueryDescription().WithAll<NetworkId, T>();
+    var query = new QueryDescription().WithAll<StableId, T>();
 
-    world.Query(in query, (ref NetworkId netId, ref T component) => { list.Add((netId.Id, component)); });
+    world.Query(in query, (ref StableId netId, ref T component) => { list.Add((netId.Id, component)); });
 
     var data = MemoryPackSerializer.Serialize(list);
     stream.Write(BitConverter.GetBytes(data.Length));
@@ -27,7 +27,7 @@ public class ComponentPacker<T> where T : struct {
     if (list != null) {
       foreach (var (netId, component) in list) {
         if (!registry.TryGetValue(netId, out var entity)) {
-          entity = world.Create(new NetworkId { Id = netId }, component);
+          entity = world.Create(new StableId { Id = netId }, component);
           registry[netId] = entity;
         }
         else if (world.Has<T>(entity)) {

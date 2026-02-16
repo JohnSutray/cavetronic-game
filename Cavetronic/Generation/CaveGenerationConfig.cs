@@ -8,7 +8,7 @@ public class CaveGenerationConfig {
   public float Threshold = 0.45f; // Cave threshold (inverted: solid where noise < threshold)
 
   // Cellular Automata
-  public int SmoothIterations = 2; // Проверка: вызывает stack overflow
+  public int SmoothIterations = 3; // Проверка: вызывает stack overflow
   public int SolidNeighborThreshold = 5;
 
   // Chunk parameters

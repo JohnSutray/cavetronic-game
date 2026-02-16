@@ -1,6 +1,6 @@
-using Cavetronic.Systems;
+using Cavetronic.Generation;
 
-namespace Cavetronic.Generation;
+namespace Cavetronic.Systems;
 
 public class CaveGenerationSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   private readonly CaveGenerationConfig _config = new();

@@ -2,9 +2,9 @@ using nkast.Aether.Physics2D.Collision.Shapes;
 using nkast.Aether.Physics2D.Dynamics;
 using Raylib_cs;
 
-namespace Cavetronic.Systems;
+namespace Cavetronic.Systems.Client;
 
-public class DebugRenderSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
+public class DebugCollidersRenderSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   private const float LineThickness = 0.3f; // Толщина линий в метрах
   private readonly Dictionary<Body, Color> _bodyColors = new();
   private int _colorIndex;

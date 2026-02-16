@@ -1,12 +1,11 @@
 using System.Numerics;
 using Arch.Core;
-using Arch.Core.Extensions;
 using Raylib_cs;
 
-namespace Cavetronic.Systems;
+namespace Cavetronic.Systems.Client;
 
 public class CameraControlSystem(GameWorld gameWorld, CameraSystem cameraSystem) : EcsSystem(gameWorld) {
-  private readonly QueryDescription _cameraTargetQuery  = new QueryDescription().WithAll<CameraTarget, Position>();
+  private readonly QueryDescription _cameraTargetQuery = new QueryDescription().WithAll<CameraTarget, Position>();
 
   private bool _isDragging;
   private Vector2 _lastMousePos;

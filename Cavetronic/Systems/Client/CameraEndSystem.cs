@@ -1,6 +1,6 @@
 using Raylib_cs;
 
-namespace Cavetronic.Systems;
+namespace Cavetronic.Systems.Client;
 
 public class CameraEndSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   public override void Tick(float dt) {

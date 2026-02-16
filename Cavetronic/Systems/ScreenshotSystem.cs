@@ -19,8 +19,8 @@ public class ScreenshotSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   }
 
   private void TakeScreenshot() {
-    Directory.CreateDirectory("Images");
-    var filename = "Images/game_screenshot.png";
+    Directory.CreateDirectory("../../../Images");
+    var filename = "../../../Images/game_screenshot.png";
     Raylib.TakeScreenshot(filename);
     Console.WriteLine($"Screenshot saved: {filename}");
   }
