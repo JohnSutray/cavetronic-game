@@ -30,7 +30,8 @@ public class DroneDeathTestSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
       var ghostEntity = GameWorld.Ecs.Create(
         new StableId { Id = ghostId },
         new Ghost(),
-        new Position { X = x, Y = y }
+        new Position { X = x, Y = y },
+        new ControlSubjectInputDescriptor<Action1>()
       );
       GameWorld.RegisterEntity(ghostId, ghostEntity);
 

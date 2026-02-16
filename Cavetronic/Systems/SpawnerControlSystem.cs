@@ -9,22 +9,24 @@ public class SpawnerControlSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   private const float DroneRadius = 0.5f;
   private const float DroneDensity = 1f;
 
-  private readonly QueryDescription _spawnersQuery = new QueryDescription()
-    .WithAll<DroneHeadSpawner, ControlSubject, Position, StableId>();
+  private readonly QueryDescription _spawnAction1Query = new QueryDescription()
+    .WithAll<DroneHeadSpawner, ControlSubject, Position, StableId, ControlSubjectInput<Action1>>();
+
+  private readonly QueryDescription _spawnAction2Query = new QueryDescription()
+    .WithAll<DroneHeadSpawner, ControlSubject, ControlSubjectInput<Action2>>();
 
   public override void Tick(float dt) {
     var deferredCreations = new List<(float X, float Y, int DroneId)>();
 
-    GameWorld.Ecs.Query(in _spawnersQuery, (
+    // Action1 (Space): выпустить дрона из production в stage
+    GameWorld.Ecs.Query(in _spawnAction1Query, (
       ref DroneHeadSpawner spawner,
       ref ControlSubject subject,
       ref Position pos,
-      ref StableId stableId
+      ref StableId stableId,
+      ref ControlSubjectInput<Action1> input
     ) => {
-      var input = subject.Input;
-
-      // Action1 (Space): выпустить дрона из production в stage
-      if ((input & (ulong)InputSignal.Action1) != 0
+      if (input.Active && !input.PreviouslyActive
           && spawner.ProductionReady
           && spawner.StageDroneId == 0) {
         var droneId = GameWorld.NextStableId();
@@ -33,9 +35,15 @@ public class SpawnerControlSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
         spawner.ProductionTimer = ProductionDuration;
         deferredCreations.Add((pos.X, pos.Y + 1f, droneId));
       }
+    });
 
-      // Action2 (E): вселиться в дрона из stage
-      if ((input & (ulong)InputSignal.Action2) != 0
+    // Action2 (E): вселиться в дрона из stage
+    GameWorld.Ecs.Query(in _spawnAction2Query, (
+      ref DroneHeadSpawner spawner,
+      ref ControlSubject subject,
+      ref ControlSubjectInput<Action2> input
+    ) => {
+      if (input.Active && !input.PreviouslyActive
           && spawner.StageDroneId != 0) {
         subject.TransferTargetId = spawner.StageDroneId;
         spawner.StageDroneId = 0;
@@ -52,7 +60,9 @@ public class SpawnerControlSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
         new StableId { Id = droneId },
         new DroneHead(),
         new Position { X = x, Y = y },
-        new PhysicsBodyRef { Body = body }
+        new PhysicsBodyRef { Body = body },
+        new ControlSubjectInputDescriptor<MoveLeft>(),
+        new ControlSubjectInputDescriptor<MoveRight>()
       );
       GameWorld.RegisterEntity(droneId, entity);
     }

@@ -4,6 +4,7 @@ namespace Cavetronic;
 
 public partial struct StableId {
   public const int DefaultSpawnerId = 1;
+  public const int LocalTestUser = 1000;
 
   public int Id;
 }
@@ -11,26 +12,28 @@ public partial struct StableId {
 public partial struct Player {
 }
 
-[Flags]
-public enum InputSignal : ulong {
-  None    = 0,
-  Up      = 1UL << 0,
-  Down    = 1UL << 1,
-  Left    = 1UL << 2,
-  Right   = 1UL << 3,
-  Action1 = 1UL << 4,    // Space
-  Action2 = 1UL << 5,    // E
-  Action3 = 1UL << 6,    // F
-}
-
 public struct ControlOwner {
   public int SubjectId;
-  public ulong Input;
+  public int ReassignedAtTick;
 }
 
 public struct ControlSubject {
-  public ulong Input;
   public int TransferTargetId;
+}
+
+public struct Action1;
+public struct Action2;
+public struct MoveLeft;
+public struct MoveRight;
+
+public struct ControlSubjectInputDescriptor<T> where T : struct {
+  public int DescriptionKeyCode;
+}
+
+public struct ControlSubjectInput<T> where T : struct {
+  public bool Active;
+  public bool PreviouslyActive;
+  public int OwnerId;
 }
 
 public partial struct DroneHead {

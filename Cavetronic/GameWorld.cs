@@ -8,10 +8,10 @@ namespace Cavetronic;
 public class GameWorld {
   public EcsWorld Ecs { get; } = EcsWorld.Create();
   public PhysicsWorld Physics { get; } = new(new Vector2(0, 9.8f));
-
-  public Dictionary<int, Entity> EntityIndex { get; } = new();
+  private Dictionary<int, Entity> EntityIndex { get; } = new();
   public List<(Entity Entity, int StableId)> PendingDestroy { get; } = new();
-
+  public Dictionary<int, string> Nicknames { get; } = new();
+  public int Tick;
   private int _nextStableId = 2;
 
   public int NextStableId() => _nextStableId++;

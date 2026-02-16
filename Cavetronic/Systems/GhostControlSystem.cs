@@ -4,7 +4,7 @@ namespace Cavetronic.Systems;
 
 public class GhostControlSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   private readonly QueryDescription _ghostsQuery = new QueryDescription()
-    .WithAll<Ghost, ControlSubject, StableId>();
+    .WithAll<Ghost, ControlSubject, StableId, ControlSubjectInput<Action1>>();
 
   public override void Tick(float dt) {
     var toDestroy = new List<(Entity Entity, int StableId)>();
@@ -12,9 +12,10 @@ public class GhostControlSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     GameWorld.Ecs.Query(in _ghostsQuery, (
       Entity entity,
       ref ControlSubject subject,
-      ref StableId stableId
+      ref StableId stableId,
+      ref ControlSubjectInput<Action1> input
     ) => {
-      if ((subject.Input & (ulong)InputSignal.Action1) != 0) {
+      if (input.Active && !input.PreviouslyActive) {
         subject.TransferTargetId = StableId.DefaultSpawnerId;
         toDestroy.Add((entity, stableId.Id));
       }

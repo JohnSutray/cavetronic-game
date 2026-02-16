@@ -22,17 +22,20 @@ public class Program {
     var gameWorld = new GameWorld();
 
     var playerEntity = gameWorld.Ecs.Create(
-      new StableId { Id = 1000 },
+      new StableId { Id = StableId.LocalTestUser },
       new Player(),
       new ControlOwner { SubjectId = StableId.DefaultSpawnerId }
     );
-    gameWorld.RegisterEntity(1000, playerEntity);
+    gameWorld.RegisterEntity(StableId.LocalTestUser, playerEntity);
+    gameWorld.Nicknames[StableId.LocalTestUser] = "Player 1";
 
     var spawnerEntity = gameWorld.Ecs.Create(
       new StableId { Id = StableId.DefaultSpawnerId },
       new Position { X = -10f, Y = -60f },
       new DroneHeadSpawner { ProductionTimer = 5f },
-      new ControlSubject()
+      new ControlSubject(),
+      new ControlSubjectInputDescriptor<Action1>(),
+      new ControlSubjectInputDescriptor<Action2>()
     );
     gameWorld.RegisterEntity(StableId.DefaultSpawnerId, spawnerEntity);
 
@@ -58,6 +61,7 @@ public class Program {
       new CameraStartSystem(gameWorld, cameraSystem),
       new DebugCollidersRenderSystem(gameWorld),
       new CameraEndSystem(gameWorld),
+      new NicknameRenderSystem(gameWorld, cameraSystem),
     };
 
     foreach (var system in systems) {
@@ -68,6 +72,7 @@ public class Program {
     Raylib.SetTargetFPS(120);
 
     while (!Raylib.WindowShouldClose()) {
+      gameWorld.Tick++;
       var dt = Raylib.GetFrameTime();
 
       Raylib.BeginDrawing();
