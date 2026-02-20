@@ -1,3 +1,4 @@
+using Arch.Buffer;
 using Arch.Core;
 
 namespace Cavetronic.Systems;
@@ -20,7 +21,7 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
   private readonly QueryDescription _subjectMoveRightQuery =
     new QueryDescription().WithAll<ControlSubject, ControlSubjectInput<MoveRight>>();
 
-  private readonly List<Entity> _toClean = new();
+  private readonly CommandBuffer _buffer = new();
 
   public override void Tick(float dt) {
     // Phase 1: advance — shift Active → PreviouslyActive, reset Active
@@ -39,8 +40,10 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
         return;
       }
 
-      if (owner.ReassignedAtTick > 0
-          && GameWorld.Tick - owner.ReassignedAtTick < SkipControlAfterReassignTicks) {
+      if (
+        owner.ReassignedAtTick > 0
+        && GameWorld.Tick - owner.ReassignedAtTick < SkipControlAfterReassignTicks
+      ) {
         return;
       }
 
@@ -74,12 +77,16 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
     }
 
     if (!GameWorld.Ecs.Has<ControlSubjectInput<T>>(subjectEntity)) {
-      GameWorld.Ecs.Add(subjectEntity, new ControlSubjectInput<T> {
-        Active = true,
-        PreviouslyActive = false,
-        OwnerId = ownerId
-      });
-    } else {
+      GameWorld.Ecs.Add(
+        subjectEntity,
+        new ControlSubjectInput<T> {
+          Active = true,
+          PreviouslyActive = false,
+          OwnerId = ownerId
+        }
+      );
+    }
+    else {
       ref var input = ref GameWorld.Ecs.Get<ControlSubjectInput<T>>(subjectEntity);
 
       if (!input.Active) {
@@ -90,16 +97,12 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
   }
 
   private void CleanupInput<T>(in QueryDescription query) where T : struct {
-    _toClean.Clear();
-
     GameWorld.Ecs.Query(in query, (Entity entity, ref ControlSubjectInput<T> input) => {
       if (!input.Active && !input.PreviouslyActive) {
-        _toClean.Add(entity);
+        _buffer.Remove<ControlSubjectInput<T>>(in entity);
       }
     });
 
-    foreach (var entity in _toClean) {
-      GameWorld.Ecs.Remove<ControlSubjectInput<T>>(entity);
-    }
+    _buffer.Playback(GameWorld.Ecs);
   }
 }

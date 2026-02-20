@@ -65,7 +65,12 @@ public class DebugCollidersRenderSystem(GameWorld gameWorld) : EcsSystem(gameWor
       float x2 = pos.X + v2.X * cos - v2.Y * sin;
       float y2 = pos.Y + v2.X * sin + v2.Y * cos;
 
-      Raylib.DrawLineEx(new System.Numerics.Vector2(x1, y1), new System.Numerics.Vector2(x2, y2), LineThickness, color);
+      Raylib.DrawLineEx(
+        new System.Numerics.Vector2(x1, y1),
+        new System.Numerics.Vector2(x2, y2),
+        LineThickness,
+        color
+      );
     }
   }
 

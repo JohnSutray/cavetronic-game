@@ -34,6 +34,7 @@ public struct ControlSubjectInput<T> where T : struct {
   public bool Active;
   public bool PreviouslyActive;
   public int OwnerId;
+  public T Payload;
 }
 
 public partial struct DroneHead {

@@ -1,17 +1,13 @@
+using Arch.Buffer;
 using Arch.Core;
 
 namespace Cavetronic.Systems;
 
 public class ControlTransferSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   private readonly QueryDescription _playersQuery = new QueryDescription().WithAll<ControlOwner>();
-
-  private readonly List<Entity> _deferredAddControlSubject = new();
-  private readonly List<Entity> _deferredInputCleanup = new();
+  private readonly CommandBuffer _buffer = new();
 
   public override void Tick(float dt) {
-    _deferredAddControlSubject.Clear();
-    _deferredInputCleanup.Clear();
-
     GameWorld.Ecs.Query(in _playersQuery, (Entity playerEntity, ref ControlOwner owner) => {
       if (!GameWorld.TryGetEntity(owner.SubjectId, out var subjectEntity)) {
         return;
@@ -28,8 +24,8 @@ public class ControlTransferSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
       }
 
       // Сброс инпутов при смене сабжекта
-      _deferredInputCleanup.Add(playerEntity);
-      _deferredInputCleanup.Add(subjectEntity);
+      RecordInputCleanup(_buffer, playerEntity);
+      RecordInputCleanup(_buffer, subjectEntity);
 
       var newSubjectId = subject.TransferTargetId;
       subject.TransferTargetId = 0;
@@ -39,27 +35,14 @@ public class ControlTransferSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
       // Добавить ControlSubject на новую сущность (если нет)
       if (GameWorld.TryGetEntity(newSubjectId, out var newEntity)) {
         if (!GameWorld.Ecs.Has<ControlSubject>(newEntity)) {
-          _deferredAddControlSubject.Add(newEntity);
+          _buffer.Add<ControlSubject>(in newEntity);
         }
       }
     });
 
-    // Deferred: сброс всех инпутов при трансфере
-    foreach (var entity in _deferredInputCleanup) {
-      if (GameWorld.Ecs.IsAlive(entity)) {
-        RemoveInput<Action1>(entity);
-        RemoveInput<Action2>(entity);
-        RemoveInput<MoveLeft>(entity);
-        RemoveInput<MoveRight>(entity);
-      }
-    }
+    _buffer.Playback(GameWorld.Ecs);
 
-    // Deferred: добавить ControlSubject новым сущностям
-    foreach (var entity in _deferredAddControlSubject) {
-      GameWorld.Ecs.Add<ControlSubject>(entity);
-    }
-
-    // Deferred: уничтожить помеченные сущности
+    // Deferred: уничтожить помеченные сущности (нужен EntityIndex → ручной проход)
     foreach (var (entity, stableId) in GameWorld.PendingDestroy) {
       GameWorld.UnregisterEntity(stableId);
 
@@ -71,9 +54,21 @@ public class ControlTransferSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     GameWorld.PendingDestroy.Clear();
   }
 
-  private void RemoveInput<T>(Entity entity) where T : struct {
-    if (GameWorld.Ecs.Has<ControlSubjectInput<T>>(entity)) {
-      GameWorld.Ecs.Remove<ControlSubjectInput<T>>(entity);
+  private void RecordInputCleanup(CommandBuffer buffer, Entity entity) {
+    RemoveIfHas<ControlSubjectInput<Action1>>(buffer, entity);
+    RemoveIfHas<ControlSubjectInput<Action2>>(buffer, entity);
+    RemoveIfHas<ControlSubjectInput<MoveLeft>>(buffer, entity);
+    RemoveIfHas<ControlSubjectInput<MoveRight>>(buffer, entity);
+    RemoveIfHas<ControlSubjectInput<CursorInput>>(buffer, entity);
+    RemoveIfHas<ControlSubjectInput<CursorLeftMoveAction>>(buffer, entity);
+    RemoveIfHas<ControlSubjectInput<CursorRightClickAction>>(buffer, entity);
+    RemoveIfHas<ControlSubjectInput<ShiftModifier>>(buffer, entity);
+    RemoveIfHas<ControlSubjectInput<InputExclusive>>(buffer, entity);
+  }
+
+  private void RemoveIfHas<T>(CommandBuffer buffer, Entity entity) where T : struct {
+    if (GameWorld.Ecs.Has<T>(entity)) {
+      buffer.Remove<T>(in entity);
     }
   }
 }

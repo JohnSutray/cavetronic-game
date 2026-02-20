@@ -15,7 +15,7 @@ public class GhostControlSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
       ref StableId stableId,
       ref ControlSubjectInput<Action1> input
     ) => {
-      if (input.Active && !input.PreviouslyActive) {
+      if (input is { Active: true, PreviouslyActive: false }) {
         subject.TransferTargetId = StableId.DefaultSpawnerId;
         toDestroy.Add((entity, stableId.Id));
       }
