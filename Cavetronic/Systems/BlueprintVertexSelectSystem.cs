@@ -11,8 +11,11 @@ public class BlueprintVertexSelectSystem(GameWorld gameWorld) : EcsSystem(gameWo
       ControlSubjectInput<CursorLeftMoveAction>
     >();
 
+  // Вынесено в поле, чтобы лямбда захватывала только `this` (без DisplayClass).
+  private bool _hasShift;
+
   public override void Tick(float dt) {
-    var hasShift = GameWorld.QueryHasBlueprintShift();
+    _hasShift = GameWorld.QueryHasBlueprintShift();
 
     GameWorld.Ecs.Query(in _blueprintQuery, (
       ref BlueprintMesh mesh,
@@ -25,7 +28,7 @@ public class BlueprintVertexSelectSystem(GameWorld gameWorld) : EcsSystem(gameWo
 
       var clickX = lmb.Payload.EndX;
       var clickY = lmb.Payload.EndY;
-      var shiftHeld = hasShift;
+      var shiftHeld = _hasShift;
       var hoveredId = mesh.HoveredVertexId;
 
       if (hoveredId != 0) {

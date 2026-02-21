@@ -1,166 +1,67 @@
-# Сессия: Blueprint Editor — баги, фичи, инпут-архитектура
+# Сессия: Оптимизация памяти и ImGui-рефакторинг
 
 ---
 
 ## Что было сделано
 
-### 1. Исправлен drag-snap (вершина прыгала к курсору при клике)
+### 1. Диагностика роста памяти
+- Пользователь сообщил о непрерывном росте памяти в процессе.
+- Добавлен ImGui-оверлей (временно инлайном в `Program.cs`) с `Heap`, `Alloc`, `GC g0/g1/g2`, `ECS e:/arch:`.
+- Выяснилось: `g0/g1/g2 = 0` при росте → GC не триггерился, просто накапливалось в ген0.
+- Добавлен `GC.Collect(2, Forced, blocking:true)` каждые 0.5с → память перестала расти.
+- **Вывод: утечек нет.** Была pre-GC аккумуляция коротких объектов. Gen2 коллект раз в секунду держит heap стабильным.
 
-**Причина:** MoveSystem использовал delta-движение (`vertex.X += EndX - StartX`).
-При тикрейте InputSystem 30 Гц и FPS 120 тот же delta применялся ~4 раза за тик → накопительный эффект.
+### 2. Устранение per-tick аллокаций (горячие пути)
 
-**Решение:** Offset-based абсолютное позиционирование.
-```csharp
-// Захват один раз при начале нового drag'а
-_dragOffsetX = vertex.X - lmb.Payload.EndX;
-_dragOffsetY = vertex.Y - lmb.Payload.EndY;
+**BlueprintGeometry.cs:**
+- Добавлены 4 `private static readonly` буфера (`_cachedEdges`, `_cachedEdgeSeen`, `_movingEdgesBuf`, `_staticEdgesBuf`)
+- Добавлен `PopulateEdges(triangles, list, seen)` — заполняет переданные коллекции без аллокации
+- Добавлен `ClassifyEdge` — single-pass разделение рёбер на движущиеся/статичные без LINQ
+- Убраны `GetEdges()` (возвращал `new List<>`) из `IsValidNewVertex`, `IsValidTriangleFromExisting`, `IsVertexMoveValid`
 
-// Применение каждый тик — идемпотентно
-vertex.X = lmb.Payload.EndX + _dragOffsetX;
-vertex.Y = lmb.Payload.EndY + _dragOffsetY;
-```
+**Системы — устранение DisplayClass:**
+- `BlueprintCursorSystem`: вынесены `_cx`, `_cy`, `_bestVertexId`, `_bestDist2`, `_hoveredEdgeA/B`, `_bestEdgeDist` в поля
+- `BlueprintRenderSystem`: вынесены `_triangles`, `_selectedId1/2`, `_hoveredVertexId`, `_hoveredEdgeA/B`, `_cursorX/Y`, `_hasCursor` в поля; `DrawTrianglePreview(...)` стала безпараметровой
+- `BlueprintVertexMoveSystem`: `var dragActiveThisTick` → `_dragActiveThisTick` поле
+- `BlueprintVertexSelectSystem`: `var hasShift` → `_hasShift` поле
+- `GhostControlSystem`: `var toDestroy = new List<>()` → `readonly List<> _toDestroy` поле с `.Clear()`
+- `BlueprintEdgeDeleteSystem`, `BlueprintVertexDeleteSystem`: все временные коллекции вынесены в поля
 
-Дополнительно: убрана побочная мутация `SelectedId1 = 0` из `GetDragTargetId`.
+### 3. ImGui-рефакторинг: инлайн → системы
 
----
+**Новые файлы:**
+- `Systems/Client/ImGuiBeginSystem.cs` — вызывает `rlImGui.Begin()`
+- `Systems/Client/ImGuiEndSystem.cs` — вызывает `rlImGui.End()`
+- `Systems/Client/MemoryStatsOverlaySystem.cs` — оверлей памяти/ECS с кнопкой "GC Gen2"
 
-### 2. Исправлена валидация перемещения вершины
+**Program.cs:**
+- Убран весь инлайн ImGui-код из игрового цикла
+- Три новые системы добавлены в конец массива после `CameraEndSystem`
+- Цикл теперь: `BeginDrawing → systems.Tick → DrawFPS → EndDrawing`
 
-**IsVertexMoveValid теперь содержит 3 проверки:**
-
-1. **Edge crossing** — движущиеся рёбра не пересекают статичные (было, слабее)
-2. **Winding** — для каждого содержащего треугольника: `sign(Side_orig) == sign(Side_new)`.
-   Ловит кейс "вершина проваливается через базовое ребро" — edge crossing тест его пропускает,
-   т.к. смежные рёбра пропускаются из проверки.
-3. **Not inside foreign triangle** — новая позиция не попадает внутрь чужого треугольника.
-
----
-
-### 3. Исправлена валидация создания нового треугольника
-
-**Проблема 1:** При однотреугольном меше можно было нарисовать треугольник, частично перекрывающий
-существующий, если новая вершина не погружалась внутрь, но ребро цепляло.
-
-**Исправление IsValidNewVertex:**
-- Winding check: W должна быть на стороне, противоположной третьей вершине любого треугольника,
-  разделяющего базовое ребро v1-v2 (`newSide * existingSide < 0`)
-- Edge crossing: каждое из двух новых рёбер (W→v1, W→v2) проверяется только против рёбер,
-  не делящих его собственный endpoint (не оба вместе, а по отдельности)
-
-**Проблема 2:** Старый код пропускал рёбра, касающиеся v1 ИЛИ v2 — для обоих новых рёбер.
-В однотреугольном меше с тремя рёбрами все три рёбра имеют хотя бы один конец в v1 или v2,
-в результате ни одно ребро не проверялось.
+**MemoryStatsOverlaySystem:**
+- Обновляет строки раз в 1с
+- `RefreshStats()` читает `GC.GetTotalMemory`, `GetTotalAllocatedBytes`, `CollectionCount(0/1/2)`, `Ecs.Size`, `Ecs.Archetypes.Count`
+- Кнопка "GC Gen2" вызывает `GC.Collect(2, Forced, blocking:true)` немедленно по клику
 
 ---
 
-### 4. Добавлено создание треугольника из трёх существующих вершин
+## Паттерн ImGui в системах
 
-**Поведение:** Если выделены 2 вершины и нажать LMB на третью уже существующую →
-вместо выделения формируется треугольник из трёх существующих вершин.
-
-**IsValidTriangleFromExisting** (отдельная функция):
-- Не вызывает IsInsideMesh (существующая вершина по определению на меше → ложный reject)
-- Проверяет: не дублирует треугольник, winding, edge crossings
+Чтобы нарисовать UI в системе — встать между `ImGuiBeginSystem` и `ImGuiEndSystem`:
 
 ```csharp
-// В BlueprintVertexSelectSystem.Tick:
-if (mesh.SelectedId1 != 0 && mesh.SelectedId2 != 0
-  && hoveredId != mesh.SelectedId1 && hoveredId != mesh.SelectedId2) {
-  TryCreateTriangleFromExisting(ref mesh, hoveredId);
-}
+// Program.cs — порядок систем:
+new CameraEndSystem(gameWorld),
+new ImGuiBeginSystem(gameWorld),
+new MyUiSystem(gameWorld),   // ← сюда любая система, которая рисует ImGui
+new MemoryStatsOverlaySystem(gameWorld),
+new ImGuiEndSystem(gameWorld),
 ```
 
 ---
 
-### 5. Добавлен hover на рёбра + удаление ребра по RMB
+## Открытые задачи
 
-**BlueprintCursorSystem** — edge hover (только когда HoveredVertexId == 0):
-```csharp
-foreach (var (a, b) in BlueprintGeometry.GetEdges(mesh.Triangles)) {
-  var dist = BlueprintGeometry.DistanceToSegment(cx, cy, ax, ay, bx, by);
-  if (dist < bestEdgeDist) { ... hoveredEdgeA = a; hoveredEdgeB = b; }
-}
-```
-Порог EdgeHoverRadius = 0.2 ед. Приоритет: vertex hover (0.4 ед.) блокирует edge hover.
-
-**BlueprintRenderSystem** — hover-цвет рёбра:
-- ColorEdge = (0, 200, 255), толщина 0.08
-- ColorEdgeHover = (255, 200, 60), толщина 0.18
-- Проверка: `(a == hoveredEdgeA && b == hoveredEdgeB) || (a == hoveredEdgeB && b == hoveredEdgeA)`
-
-**BlueprintEdgeDeleteSystem** (новый файл):
-- Query: Blueprint + BlueprintMesh + ControlSubjectInput\<CursorRightClickAction\>
-- Охранники: `!rclick.Active` → return; `HoveredVertexId != 0` → return; `HoveredEdgeA == 0` → return
-- `TryDeleteEdge`: найти треугольники с обоими концами ребра → remaining set → reject если < 3 вершин →
-  orphaned = в удалённых, но не в remaining → новый массив треугольников → PendingDestroy для orphaned
-
----
-
-### 6. Исправлен RMB — события не пропадают при тикрейте < FPS
-
-**Причина:** `IsMouseButtonReleased` — true ровно один Raylib-кадр. При 30 Гц тике и 120 FPS
-вероятность попасть в нужный кадр ≈ 25%. Дополнительно: `_rmbMoved` не сбрасывался,
-если тик пропустил кадр с press (оставался true от предыдущего drag'а).
-
-**Решение в InputSystem:**
-```csharp
-public override void Tick(float dt) {
-  // RMB tracking — каждый Raylib-кадр, ДО аккумулятора
-  if (cameraSystem != null) {
-    var rmbPressed = Raylib.IsMouseButtonPressed(MouseButton.Right);
-    // ... rmbDown, rmbReleased ...
-    if (rmbPressed) { _rmbLastScreenPos = mouseScreen; _rmbMoved = false; }
-    if (rmbDown && !rmbPressed) { if (delta > RmbDragThresholdPx) _rmbMoved = true; }
-    if (rmbReleased && !_rmbMoved) _rmbClickLatched = true;
-  }
-
-  _accumulator += dt;
-  if (_accumulator < _tickInterval) return;
-  _accumulator -= _tickInterval;
-
-  // Потребляем залатченный клик
-  var rmbClick = _rmbClickLatched;
-  _rmbClickLatched = false;
-  // ...
-}
-```
-
----
-
-## Изменённые файлы
-
-| Файл | Что изменилось |
-|------|---------------|
-| `Blueprint/BlueprintComponents.cs` | Добавлены `HoveredEdgeA`, `HoveredEdgeB` в `BlueprintMesh` |
-| `Blueprint/BlueprintGeometry.cs` | Добавлены `DistanceToSegment`, `IsValidTriangleFromExisting`; переписаны `IsVertexMoveValid`, `IsValidNewVertex` |
-| `Systems/BlueprintCursorSystem.cs` | Добавлен edge hover |
-| `Systems/BlueprintVertexSelectSystem.cs` | TryCreateTriangleFromExisting, AppendTriangle |
-| `Systems/BlueprintVertexMoveSystem.cs` | Полный переход на offset-based drag |
-| `Systems/BlueprintEdgeDeleteSystem.cs` | **Новый файл** |
-| `Systems/Client/BlueprintRenderSystem.cs` | ColorEdgeHover, LineThicknessHover, hover-рендер рёбер |
-| `Systems/Client/InputSystem.cs` | RMB latching (`_rmbClickLatched`), вынос RMB tracking до аккумулятора |
-| `Program.cs` | Добавлен `BlueprintEdgeDeleteSystem` перед `BlueprintVertexDeleteSystem` |
-
----
-
-## Текущее состояние редактора
-
-Все основные UX-функции реализованы и работают:
-- [x] Hover на вершинах и рёбрах
-- [x] Выделение 1 или 2 смежных вершин
-- [x] Drag вершины с корректным offset (нет snap, нет накопления)
-- [x] Создание нового треугольника (новая вершина в пустой области)
-- [x] Создание треугольника из трёх существующих вершин
-- [x] Удаление вершины по RMB
-- [x] Удаление ребра по RMB
-- [x] Полная валидация: edge crossing, winding, not-inside-foreign
-- [x] RMB click vs drag корректно различается при любом FPS/тикрейте
-- [x] Камера: панорамирование RMB drag
-
-## Что ещё не реализовано (из оригинальной спецификации)
-
-- [ ] LMB drag внутри меша → перемещение всего меша
-- [ ] Ear-clipping ретриангуляция при удалении вершины (сейчас удаляются осиротевшие вершины)
-- [ ] Scroll wheel зум
-- [ ] Сохранение/загрузка префабов (JSON в `Prefabs/`)
-- [ ] Сайдбар со списком префабов
+- **InlineQuery / IForEach** — delegate при каждом `Ecs.Query(lambda)` всё ещё аллоцируется. Не критично при текущей нагрузке (gen2 раз в секунду держит heap стабильным), но является следующим шагом оптимизации при необходимости.
+- **ControlInputSyncSystem** — вызывает `AdvanceInput×8 + CleanupInput×8` каждый Raylib-кадр (120fps). При наличии проблем с производительностью — ревизия этой системы.

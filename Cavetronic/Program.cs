@@ -68,6 +68,9 @@ public class Program {
       new CameraStartSystem(gameWorld, cameraSystem),
       new BlueprintRenderSystem(gameWorld),
       new CameraEndSystem(gameWorld),
+      new ImGuiBeginSystem(gameWorld),
+      new MemoryStatsOverlaySystem(gameWorld),
+      new ImGuiEndSystem(gameWorld),
     };
 
     foreach (var system in systems) {
@@ -76,6 +79,7 @@ public class Program {
 
     Raylib.InitWindow(1600, 900, "Cavetronic — Blueprint Editor");
     Raylib.SetTargetFPS(120);
+    rlImGui.Setup();
 
     while (!Raylib.WindowShouldClose()) {
       gameWorld.Tick++;
@@ -92,6 +96,7 @@ public class Program {
       Raylib.EndDrawing();
     }
 
+    rlImGui.Shutdown();
     Raylib.CloseWindow();
   }
 
@@ -102,12 +107,6 @@ public class Program {
 
     caveGenerationSystem.Init();
   }
-  
-  private static ImGuiWindowFlags _flags = ImGuiWindowFlags.NoTitleBar | 
-  ImGuiWindowFlags.NoResize | 
-  ImGuiWindowFlags.NoMove | 
-  ImGuiWindowFlags.NoBackground |
-  ImGuiWindowFlags.NoScrollbar;
 
   private static string _inputValue = "";
 

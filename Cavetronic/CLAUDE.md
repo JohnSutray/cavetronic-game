@@ -1,3 +1,11 @@
+# Инструкция для Claude
+
+## Лог сессий
+Файл `LAST_SESSION.md` (рядом с этим файлом) хранит лог последней сессии.
+**В конце каждой сессии** — обновить `LAST_SESSION.md`: что сделано, какие файлы изменены, открытые задачи и планы на следующую сессию.
+
+---
+
 # Что это?
 - мультиплеерная игра Cavetronic
 - 2D-игра с видом сбоку про дронов, которые исследуют бесконечные пещеры, пытаясь выбраться на поверхность
@@ -39,6 +47,52 @@
 - используем паттерны вместо булевых операторов по возможности
 - !!WARNING!! следим за потреблением внешних переменных внутри кверей (чтобы не создавать копии передаваемой в кверю функций)
 - !!WARNING!! не кладём в компоненты ссылочные типы. Если без этого никак - документируем решение в блоке "ИСКЛЮЧЕНИЯ ДЛЯ ССЫЛОЧНЫХ ТИПОВ ВНУТРИ КОМПОНЕНТОВ"
+
+## !!WARNING!! Аллокации в горячих путях
+
+**Правило:** в методах `Tick()` и всём, что из них вызывается в штатном режиме, запрещены `new List<>()`, `new HashSet<>()`, LINQ-операторы (`.Where()`, `.Select()`, `.ToList()`, `.Except()`, `.OrderBy()` и т.д.) и `new T[]`.
+
+**Почему:** каждая аллокация — потенциальный GC-stop-the-world. При 120 FPS даже мелкие объекты накапливаются быстро.
+
+**Паттерны замены:**
+- Коллекции, нужные на каждый тик системы → `readonly` поля системы, `Clear()` в начале тика
+- Утилитные коллекции в статических helper-классах (`BlueprintGeometry`) → `private static readonly` поля, `Clear()` в начале метода. Безопасно, т.к. игра однопоточная
+- LINQ `.Where(...).ToList()` → явный цикл `foreach` с `if`
+- LINQ `.Except(...).ToList()` → явный цикл `foreach` с `HashSet.Contains`
+- `.ToList()` для передачи в метод → отдельный `List`-буфер + `AddRange`
+
+**Оставшаяся проблема — delegate-объект при каждом Query:**
+Даже после устранения DisplayClass каждый `Ecs.Query(in desc, lambda)` создаёт `new DelegateType(this, method)`.
+Полный фикс — Arch `InlineQuery` с `IForEach`-структурами (zero-alloc API):
+```csharp
+struct VertexHoverChecker : IForEach<StableId, BlueprintVertex> {
+    public float Cx, Cy, BestDist2;
+    public int BestVertexId;
+    public void Update(ref StableId id, ref BlueprintVertex v) { ... }
+}
+var checker = new VertexHoverChecker { Cx = _cx, Cy = _cy, ... };
+GameWorld.Ecs.InlineQuery<VertexHoverChecker, StableId, BlueprintVertex>(in _verticesQuery, ref checker);
+```
+Переход на InlineQuery — следующий шаг после стабилизации архитектуры редактора.
+
+**Что допустимо разово:**
+- `mesh.Triangles = newArray` при операциях удаления/добавления (пользовательский клик — редко)
+- `EarClipTriangulate` и `SortBoundaryAroundVertex` при удалении вершины
+- Создание ECS-сущностей при добавлении вершины/треугольника
+
+## ImGui в системах
+
+`rlImGui.Begin()` / `rlImGui.End()` вынесены в системы. Любая система, стоящая **между** `ImGuiBeginSystem` и `ImGuiEndSystem`, может вызывать `ImGui.*`.
+
+```
+CameraEndSystem
+ImGuiBeginSystem          ← rlImGui.Begin()
+MemoryStatsOverlaySystem  ← диагностика памяти + кнопка GC Gen2
+[другие UI-системы]       ← встать сюда
+ImGuiEndSystem            ← rlImGui.End()
+```
+
+`rlImGui.Setup()` / `rlImGui.Shutdown()` остаются в `Program.cs` — это однократная инициализация, не тик.
 
 ## Архитектура софта
 - Сервер-авторитарная модель

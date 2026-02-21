@@ -15,6 +15,19 @@ public class BlueprintCursorSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   private readonly QueryDescription _verticesQuery =
     new QueryDescription().WithAll<StableId, BlueprintVertex>();
 
+  private readonly List<(int A, int B)> _edges = new();
+  private readonly HashSet<(int, int)> _edgeSeen = new();
+
+  // Промежуточное состояние, вынесенное из lambda-тел в поля,
+  // чтобы вложенные лямбды захватывали только `this` и не создавали DisplayClass.
+  private float _cx;
+  private float _cy;
+  private int _bestVertexId;
+  private float _bestDist2;
+  private int _hoveredEdgeA;
+  private int _hoveredEdgeB;
+  private float _bestEdgeDist;
+
   public override void Tick(float dt) {
     GameWorld.Ecs.Query(in _blueprintQuery, (
       ref BlueprintMesh mesh,
@@ -24,51 +37,53 @@ public class BlueprintCursorSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
         return;
       }
 
-      var cx = cursorInput.Payload.WorldX;
-      var cy = cursorInput.Payload.WorldY;
+      _cx = cursorInput.Payload.WorldX;
+      _cy = cursorInput.Payload.WorldY;
 
       // Vertex hover
-      var bestVertexId = 0;
-      var bestDist2 = VertexHoverRadius * VertexHoverRadius;
+      _bestVertexId = 0;
+      _bestDist2 = VertexHoverRadius * VertexHoverRadius;
 
       GameWorld.Ecs.Query(in _verticesQuery, (
         ref StableId stableId,
         ref BlueprintVertex vertex
       ) => {
-        var dx = vertex.X - cx;
-        var dy = vertex.Y - cy;
+        var dx = vertex.X - _cx;
+        var dy = vertex.Y - _cy;
         var dist2 = dx * dx + dy * dy;
 
-        if (dist2 < bestDist2) {
-          bestDist2 = dist2;
-          bestVertexId = stableId.Id;
+        if (dist2 < _bestDist2) {
+          _bestDist2 = dist2;
+          _bestVertexId = stableId.Id;
         }
       });
 
-      mesh.HoveredVertexId = bestVertexId;
+      mesh.HoveredVertexId = _bestVertexId;
 
       // Edge hover — только когда ни одна вершина не заховерена
-      var hoveredEdgeA = 0;
-      var hoveredEdgeB = 0;
+      _hoveredEdgeA = 0;
+      _hoveredEdgeB = 0;
 
-      if (bestVertexId == 0) {
-        var bestEdgeDist = EdgeHoverRadius;
+      if (_bestVertexId == 0) {
+        _bestEdgeDist = EdgeHoverRadius;
 
-        foreach (var (a, b) in BlueprintGeometry.GetEdges(mesh.Triangles)) {
+        BlueprintGeometry.PopulateEdges(mesh.Triangles, _edges, _edgeSeen);
+
+        foreach (var (a, b) in _edges) {
           var (ax, ay) = BlueprintGeometry.GetVertexPos(a, GameWorld);
           var (bx, by) = BlueprintGeometry.GetVertexPos(b, GameWorld);
-          var dist = BlueprintGeometry.DistanceToSegment(cx, cy, ax, ay, bx, by);
+          var dist = BlueprintGeometry.DistanceToSegment(_cx, _cy, ax, ay, bx, by);
 
-          if (dist < bestEdgeDist) {
-            bestEdgeDist = dist;
-            hoveredEdgeA = a;
-            hoveredEdgeB = b;
+          if (dist < _bestEdgeDist) {
+            _bestEdgeDist = dist;
+            _hoveredEdgeA = a;
+            _hoveredEdgeB = b;
           }
         }
       }
 
-      mesh.HoveredEdgeA = hoveredEdgeA;
-      mesh.HoveredEdgeB = hoveredEdgeB;
+      mesh.HoveredEdgeA = _hoveredEdgeA;
+      mesh.HoveredEdgeB = _hoveredEdgeB;
     });
   }
 }

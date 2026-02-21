@@ -18,8 +18,11 @@ public class BlueprintVertexMoveSystem(GameWorld gameWorld) : EcsSystem(gameWorl
   private float _dragOffsetX;
   private float _dragOffsetY;
 
+  // Вынесено в поле, чтобы лямбда захватывала только `this` (без DisplayClass).
+  private bool _dragActiveThisTick;
+
   public override void Tick(float dt) {
-    var dragActiveThisTick = false;
+    _dragActiveThisTick = false;
 
     GameWorld.Ecs.Query(in _blueprintQuery, (
       ref BlueprintMesh mesh,
@@ -49,7 +52,7 @@ public class BlueprintVertexMoveSystem(GameWorld gameWorld) : EcsSystem(gameWorl
         _dragOffsetY = vertex.Y - lmb.Payload.EndY;
       }
 
-      dragActiveThisTick = true;
+      _dragActiveThisTick = true;
 
       var nx = lmb.Payload.EndX + _dragOffsetX;
       var ny = lmb.Payload.EndY + _dragOffsetY;
@@ -62,7 +65,7 @@ public class BlueprintVertexMoveSystem(GameWorld gameWorld) : EcsSystem(gameWorl
       vertex.Y = ny;
     });
 
-    if (!dragActiveThisTick) {
+    if (!_dragActiveThisTick) {
       _dragTargetId = 0;
     }
   }

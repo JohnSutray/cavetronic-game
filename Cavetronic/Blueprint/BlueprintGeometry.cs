@@ -3,6 +3,12 @@ namespace Cavetronic;
 public static class BlueprintGeometry {
   private const float Epsilon = 1e-6f;
 
+  // Переиспользуемые буферы для горячих путей (игра однопоточная — конкуренции нет).
+  private static readonly List<(int A, int B)> _cachedEdges = new();
+  private static readonly HashSet<(int, int)> _cachedEdgeSeen = new();
+  private static readonly List<(int A, int B)> _movingEdgesBuf = new();
+  private static readonly List<(int A, int B)> _staticEdgesBuf = new();
+
   // ── Примитивы ──────────────────────────────────────────────────────────────
 
   public static float DistanceToSegment(
@@ -112,6 +118,40 @@ public static class BlueprintGeometry {
     }
   }
 
+  // Классифицирует ребро как «движущееся» (содержит movingId) или «статичное» и добавляет в нужный список.
+  private static void ClassifyEdge(
+    int a, int b, int movingId,
+    HashSet<(int, int)> seen,
+    List<(int A, int B)> moving,
+    List<(int A, int B)> stat
+  ) {
+    var key = a < b ? (a, b) : (b, a);
+
+    if (!seen.Add(key)) {
+      return;
+    }
+
+    if (a == movingId || b == movingId) {
+      moving.Add(key);
+    }
+    else {
+      stat.Add(key);
+    }
+  }
+
+  // Заполняет переданные коллекции рёбрами меша без аллокации новых.
+  // Результат валиден до следующего вызова PopulateEdges с теми же буферами.
+  public static void PopulateEdges(int[] triangles, List<(int A, int B)> result, HashSet<(int, int)> seen) {
+    result.Clear();
+    seen.Clear();
+
+    for (var i = 0; i < triangles.Length; i += 3) {
+      AddEdge(triangles[i], triangles[i + 1], seen, result);
+      AddEdge(triangles[i + 1], triangles[i + 2], seen, result);
+      AddEdge(triangles[i + 2], triangles[i], seen, result);
+    }
+  }
+
   // Новая вершина в (wx, wy) валидна, если:
   // 1) она не внутри меша,
   // 2) W находится на противоположной стороне базового ребра v1-v2 от всех треугольников,
@@ -161,7 +201,9 @@ public static class BlueprintGeometry {
     // Проверка рёбер: W→v1 и W→v2 не должны пересекать рёбра меша.
     // Каждое новое ребро проверяется только против рёбер, не делящих его endpoint
     // (рёбра с общим endpoint не могут дать строгое пересечение).
-    foreach (var (a, b) in GetEdges(triangles)) {
+    PopulateEdges(triangles, _cachedEdges, _cachedEdgeSeen);
+
+    foreach (var (a, b) in _cachedEdges) {
       // Базовое ребро v1-v2 пропускаем — оно станет общим ребром нового треугольника
       if ((a == v1Id || a == v2Id) && (b == v1Id || b == v2Id)) {
         continue;
@@ -191,17 +233,24 @@ public static class BlueprintGeometry {
     GameWorld world
   ) {
     var (origX, origY) = GetVertexPos(vertexId, world);
-    var edges = GetEdges(triangles);
 
-    var movingEdges = edges.Where(e => e.A == vertexId || e.B == vertexId).ToList();
-    var staticEdges = edges.Where(e => e.A != vertexId && e.B != vertexId).ToList();
+    // Разбиваем рёбра на движущиеся и статичные за один проход — без аллокаций.
+    _movingEdgesBuf.Clear();
+    _staticEdgesBuf.Clear();
+    _cachedEdgeSeen.Clear();
+
+    for (var i = 0; i < triangles.Length; i += 3) {
+      ClassifyEdge(triangles[i], triangles[i + 1], vertexId, _cachedEdgeSeen, _movingEdgesBuf, _staticEdgesBuf);
+      ClassifyEdge(triangles[i + 1], triangles[i + 2], vertexId, _cachedEdgeSeen, _movingEdgesBuf, _staticEdgesBuf);
+      ClassifyEdge(triangles[i + 2], triangles[i], vertexId, _cachedEdgeSeen, _movingEdgesBuf, _staticEdgesBuf);
+    }
 
     // Проверка 1: движущиеся рёбра не пересекают статичные рёбра.
-    foreach (var (mA, mB) in movingEdges) {
+    foreach (var (mA, mB) in _movingEdgesBuf) {
       var otherId = mA == vertexId ? mB : mA;
       var (ox, oy) = GetVertexPos(otherId, world);
 
-      foreach (var (sA, sB) in staticEdges) {
+      foreach (var (sA, sB) in _staticEdgesBuf) {
         if (sA == otherId || sB == otherId) {
           continue;
         }
@@ -325,7 +374,9 @@ public static class BlueprintGeometry {
 
     // Проверка рёбер: новые рёбра v1-v3 и v2-v3 не должны пересекать существующие рёбра.
     // Каждое проверяется только против рёбер, не делящих его endpoint.
-    foreach (var (a, b) in GetEdges(triangles)) {
+    PopulateEdges(triangles, _cachedEdges, _cachedEdgeSeen);
+
+    foreach (var (a, b) in _cachedEdges) {
       if ((a == v1Id || a == v2Id) && (b == v1Id || b == v2Id)) {
         continue; // базовое ребро v1-v2 — станет общим
       }

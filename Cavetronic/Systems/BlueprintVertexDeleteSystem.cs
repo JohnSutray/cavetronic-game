@@ -14,6 +14,11 @@ public class BlueprintVertexDeleteSystem(GameWorld gameWorld) : EcsSystem(gameWo
   private readonly QueryDescription _verticesQuery =
     new QueryDescription().WithAll<StableId, BlueprintVertex>();
 
+  private readonly HashSet<int> _adjacentIds = new();
+  private readonly HashSet<int> _referencedIds = new();
+  private readonly List<int> _newTriangles = new();
+  private readonly List<int> _adjacentList = new();
+
   public override void Tick(float dt) {
     GameWorld.Ecs.Query(in _blueprintQuery, (
       ref BlueprintMesh mesh,
@@ -34,15 +39,12 @@ public class BlueprintVertexDeleteSystem(GameWorld gameWorld) : EcsSystem(gameWo
   }
 
   private void TryDeleteVertex(ref BlueprintMesh mesh, int targetId) {
-    var totalVertices = CountUniqueVertices(mesh.Triangles);
-
-    if (totalVertices <= 3) {
+    if (CountUniqueVertices(mesh.Triangles) <= 3) {
       return; // Нельзя удалить вершину из одиночного треугольника
     }
 
     // Собираем вершины, смежные с удаляемой (из её треугольников)
-    var adjacentIds = new HashSet<int>();
-    var holeTriangleCount = 0;
+    _adjacentIds.Clear();
 
     for (var i = 0; i < mesh.Triangles.Length; i += 3) {
       var v0 = mesh.Triangles[i];
@@ -53,15 +55,13 @@ public class BlueprintVertexDeleteSystem(GameWorld gameWorld) : EcsSystem(gameWo
         continue;
       }
 
-      holeTriangleCount++;
-
-      if (v0 != targetId) adjacentIds.Add(v0);
-      if (v1 != targetId) adjacentIds.Add(v1);
-      if (v2 != targetId) adjacentIds.Add(v2);
+      if (v0 != targetId) _adjacentIds.Add(v0);
+      if (v1 != targetId) _adjacentIds.Add(v1);
+      if (v2 != targetId) _adjacentIds.Add(v2);
     }
 
     // Удаляем треугольники с этой вершиной
-    var newTriangles = new List<int>();
+    _newTriangles.Clear();
 
     for (var i = 0; i < mesh.Triangles.Length; i += 3) {
       if (mesh.Triangles[i] == targetId
@@ -70,12 +70,12 @@ public class BlueprintVertexDeleteSystem(GameWorld gameWorld) : EcsSystem(gameWo
         continue;
       }
 
-      newTriangles.Add(mesh.Triangles[i]);
-      newTriangles.Add(mesh.Triangles[i + 1]);
-      newTriangles.Add(mesh.Triangles[i + 2]);
+      _newTriangles.Add(mesh.Triangles[i]);
+      _newTriangles.Add(mesh.Triangles[i + 1]);
+      _newTriangles.Add(mesh.Triangles[i + 2]);
     }
 
-    mesh.Triangles = newTriangles.ToArray();
+    mesh.Triangles = _newTriangles.ToArray();
 
     // Сбрасываем выделение если удалённая вершина была выделена
     if (mesh.SelectedId1 == targetId) mesh.SelectedId1 = 0;
@@ -89,30 +89,32 @@ public class BlueprintVertexDeleteSystem(GameWorld gameWorld) : EcsSystem(gameWo
       GameWorld.PendingDestroy.Add((targetEntity, targetId));
 
       // Перетриангулируем дыру
-      if (adjacentIds.Count >= 3) {
-        var boundary = BlueprintGeometry.SortBoundaryAroundVertex(
-          vx, vy,
-          adjacentIds.ToList(),
-          GameWorld
-        );
+      if (_adjacentIds.Count >= 3) {
+        _adjacentList.Clear();
+        _adjacentList.AddRange(_adjacentIds);
 
+        var boundary = BlueprintGeometry.SortBoundaryAroundVertex(vx, vy, _adjacentList, GameWorld);
         var newTris = BlueprintGeometry.EarClipTriangulate(boundary, GameWorld);
 
         foreach (var tri in newTris) {
-          newTriangles.Add(tri[0]);
-          newTriangles.Add(tri[1]);
-          newTriangles.Add(tri[2]);
+          _newTriangles.Add(tri[0]);
+          _newTriangles.Add(tri[1]);
+          _newTriangles.Add(tri[2]);
         }
 
-        mesh.Triangles = newTriangles.ToArray();
+        mesh.Triangles = _newTriangles.ToArray();
       }
     }
 
     // Удаляем осиротевшие вершины (не задействованные ни в одном треугольнике)
-    var referencedIds = new HashSet<int>(mesh.Triangles);
+    _referencedIds.Clear();
 
-    foreach (var adjId in adjacentIds) {
-      if (referencedIds.Contains(adjId)) {
+    foreach (var id in mesh.Triangles) {
+      _referencedIds.Add(id);
+    }
+
+    foreach (var adjId in _adjacentIds) {
+      if (_referencedIds.Contains(adjId)) {
         continue;
       }
 

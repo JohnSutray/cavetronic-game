@@ -32,6 +32,20 @@ public class BlueprintRenderSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   private readonly QueryDescription _verticesQuery =
     new QueryDescription().WithAll<StableId, BlueprintVertex>();
 
+  private readonly List<(int A, int B)> _edges = new();
+  private readonly HashSet<(int, int)> _edgeSeen = new();
+
+  // Промежуточное состояние для DrawMesh/DrawTrianglePreview — вынесено из lambda-тел в поля.
+  private int[] _triangles = [];
+  private int _selectedId1;
+  private int _selectedId2;
+  private int _hoveredVertexId;
+  private int _hoveredEdgeA;
+  private int _hoveredEdgeB;
+  private float _cursorX;
+  private float _cursorY;
+  private bool _hasCursor;
+
   public override void Tick(float dt) {
     // Красная точка в центре мира (0,0)
     Raylib.DrawCircleV(Vector2.Zero, OriginRadius, ColorOrigin);
@@ -52,21 +66,24 @@ public class BlueprintRenderSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   }
 
   private void DrawMesh(ref BlueprintMesh mesh) {
-    // Копируем данные меша до вложенных query (ref параметр нельзя захватить в лямбду)
-    var triangles = mesh.Triangles;
-    var selectedId1 = mesh.SelectedId1;
-    var selectedId2 = mesh.SelectedId2;
-    var hoveredVertexId = mesh.HoveredVertexId;
-    var hoveredEdgeA = mesh.HoveredEdgeA;
-    var hoveredEdgeB = mesh.HoveredEdgeB;
+    // Копируем данные меша в поля до вложенных query (ref параметр нельзя захватить в лямбду).
+    // Поля вместо локальных переменных — лямбды ниже захватывают только `this`, без DisplayClass.
+    _triangles      = mesh.Triangles;
+    _selectedId1    = mesh.SelectedId1;
+    _selectedId2    = mesh.SelectedId2;
+    _hoveredVertexId = mesh.HoveredVertexId;
+    _hoveredEdgeA   = mesh.HoveredEdgeA;
+    _hoveredEdgeB   = mesh.HoveredEdgeB;
 
     // Рёбра
-    foreach (var (a, b) in BlueprintGeometry.GetEdges(triangles)) {
+    BlueprintGeometry.PopulateEdges(_triangles, _edges, _edgeSeen);
+
+    foreach (var (a, b) in _edges) {
       var (ax, ay) = BlueprintGeometry.GetVertexPos(a, GameWorld);
       var (bx, by) = BlueprintGeometry.GetVertexPos(b, GameWorld);
 
-      var isHovered = (a == hoveredEdgeA && b == hoveredEdgeB)
-        || (a == hoveredEdgeB && b == hoveredEdgeA);
+      var isHovered = (a == _hoveredEdgeA && b == _hoveredEdgeB)
+        || (a == _hoveredEdgeB && b == _hoveredEdgeA);
 
       var color = isHovered ? ColorEdgeHover : ColorEdge;
       var thickness = isHovered ? LineThicknessHover : LineThickness;
@@ -76,12 +93,12 @@ public class BlueprintRenderSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
 
     // Вершины
     GameWorld.Ecs.Query(in _verticesQuery, (ref StableId stableId, ref BlueprintVertex vertex) => {
-      var color = GetVertexColor(stableId.Id, selectedId1, selectedId2, hoveredVertexId);
+      var color = GetVertexColor(stableId.Id, _selectedId1, _selectedId2, _hoveredVertexId);
       Raylib.DrawCircleV(new Vector2(vertex.X, vertex.Y), VertexRadius, color);
     });
 
     // Превью нового треугольника (если 2 вершины выделены)
-    DrawTrianglePreview(selectedId1, selectedId2, triangles);
+    DrawTrianglePreview();
   }
 
   private static Color GetVertexColor(int stableId, int selectedId1, int selectedId2, int hoveredId) {
@@ -96,42 +113,42 @@ public class BlueprintRenderSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     return ColorVertex;
   }
 
-  private void DrawTrianglePreview(int selectedId1, int selectedId2, int[] triangles) {
-    if (selectedId1 == 0 || selectedId2 == 0) {
+  private void DrawTrianglePreview() {
+    if (_selectedId1 == 0 || _selectedId2 == 0) {
       return;
     }
 
-    var cursorX = 0f;
-    var cursorY = 0f;
-    var hasCursor = false;
+    _cursorX   = 0f;
+    _cursorY   = 0f;
+    _hasCursor = false;
 
     GameWorld.Ecs.Query(in _cursorQuery, (ref ControlSubjectInput<CursorInput> cursor) => {
       if (!cursor.Active && !cursor.PreviouslyActive) {
         return;
       }
 
-      cursorX = cursor.Payload.WorldX;
-      cursorY = cursor.Payload.WorldY;
-      hasCursor = true;
+      _cursorX   = cursor.Payload.WorldX;
+      _cursorY   = cursor.Payload.WorldY;
+      _hasCursor = true;
     });
 
-    if (!hasCursor) {
+    if (!_hasCursor) {
       return;
     }
 
-    var (v1x, v1y) = BlueprintGeometry.GetVertexPos(selectedId1, GameWorld);
-    var (v2x, v2y) = BlueprintGeometry.GetVertexPos(selectedId2, GameWorld);
+    var (v1x, v1y) = BlueprintGeometry.GetVertexPos(_selectedId1, GameWorld);
+    var (v2x, v2y) = BlueprintGeometry.GetVertexPos(_selectedId2, GameWorld);
 
     var isValid = BlueprintGeometry.IsValidNewVertex(
-      cursorX, cursorY,
-      selectedId1, selectedId2,
-      triangles, GameWorld
+      _cursorX, _cursorY,
+      _selectedId1, _selectedId2,
+      _triangles, GameWorld
     );
 
     var previewColor = isValid ? ColorPreviewValid : ColorPreviewInvalid;
 
-    Raylib.DrawLineEx(new Vector2(cursorX, cursorY), new Vector2(v1x, v1y), LineThickness, previewColor);
-    Raylib.DrawLineEx(new Vector2(cursorX, cursorY), new Vector2(v2x, v2y), LineThickness, previewColor);
+    Raylib.DrawLineEx(new Vector2(_cursorX, _cursorY), new Vector2(v1x, v1y), LineThickness, previewColor);
+    Raylib.DrawLineEx(new Vector2(_cursorX, _cursorY), new Vector2(v2x, v2y), LineThickness, previewColor);
     Raylib.DrawLineEx(new Vector2(v1x, v1y), new Vector2(v2x, v2y), LineThickness, previewColor);
   }
 }
