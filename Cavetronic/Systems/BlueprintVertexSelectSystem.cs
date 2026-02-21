@@ -29,7 +29,14 @@ public class BlueprintVertexSelectSystem(GameWorld gameWorld) : EcsSystem(gameWo
       var hoveredId = mesh.HoveredVertexId;
 
       if (hoveredId != 0) {
-        HandleVertexClick(ref mesh, hoveredId, shiftHeld);
+        // Два выделены + клик на третью существующую → попытка сформировать треугольник из трёх вершин
+        if (mesh.SelectedId1 != 0 && mesh.SelectedId2 != 0
+          && hoveredId != mesh.SelectedId1 && hoveredId != mesh.SelectedId2) {
+          TryCreateTriangleFromExisting(ref mesh, hoveredId);
+        }
+        else {
+          HandleVertexClick(ref mesh, hoveredId, shiftHeld);
+        }
       }
       else if (BlueprintGeometry.IsInsideMesh(clickX, clickY, mesh.Triangles, GameWorld)) {
         // Клик внутри меша — сбрасываем выделение
@@ -67,7 +74,6 @@ public class BlueprintVertexSelectSystem(GameWorld gameWorld) : EcsSystem(gameWo
       return;
     }
 
-    // Создаём новую вершину
     var newStableId = GameWorld.NextStableId();
     var newEntity = GameWorld.Ecs.Create(
       new StableId { Id = newStableId },
@@ -75,16 +81,29 @@ public class BlueprintVertexSelectSystem(GameWorld gameWorld) : EcsSystem(gameWo
     );
     GameWorld.RegisterEntity(newStableId, newEntity);
 
-    // Добавляем треугольник в меш
+    AppendTriangle(ref mesh, v1Id, v2Id, newStableId);
+  }
+
+  private void TryCreateTriangleFromExisting(ref BlueprintMesh mesh, int v3Id) {
+    var v1Id = mesh.SelectedId1;
+    var v2Id = mesh.SelectedId2;
+
+    if (!BlueprintGeometry.IsValidTriangleFromExisting(v1Id, v2Id, v3Id, mesh.Triangles, GameWorld)) {
+      return;
+    }
+
+    AppendTriangle(ref mesh, v1Id, v2Id, v3Id);
+  }
+
+  private static void AppendTriangle(ref BlueprintMesh mesh, int v1Id, int v2Id, int v3Id) {
     var oldLen = mesh.Triangles.Length;
     var newTriangles = new int[oldLen + 3];
     Array.Copy(mesh.Triangles, newTriangles, oldLen);
     newTriangles[oldLen] = v1Id;
     newTriangles[oldLen + 1] = v2Id;
-    newTriangles[oldLen + 2] = newStableId;
+    newTriangles[oldLen + 2] = v3Id;
     mesh.Triangles = newTriangles;
 
-    // Сбрасываем выделение
     mesh.SelectedId1 = 0;
     mesh.SelectedId2 = 0;
   }

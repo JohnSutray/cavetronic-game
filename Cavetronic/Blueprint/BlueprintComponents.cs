@@ -14,4 +14,6 @@ public struct BlueprintMesh {
   public int SelectedId1;      // StableId первой выбранной вершины (0 = нет)
   public int SelectedId2;      // StableId второй выбранной вершины (0 = нет), добавлена позже
   public int HoveredVertexId;  // StableId вершины под курсором (0 = нет)
+  public int HoveredEdgeA;     // StableId первой вершины ребра под курсором (0 = нет)
+  public int HoveredEdgeB;     // StableId второй вершины ребра под курсором (0 = нет)
 }

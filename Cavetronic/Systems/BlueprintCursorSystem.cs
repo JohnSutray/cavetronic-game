@@ -2,10 +2,12 @@ using Arch.Core;
 
 namespace Cavetronic.Systems;
 
-// Обновляет BlueprintMesh.HoveredVertexId на основе позиции курсора.
+// Обновляет HoveredVertexId и HoveredEdgeA/B в BlueprintMesh.
+// Ребро ховерится только когда ни одна вершина не заховерена.
 // Должна выполняться до систем выделения и удаления.
 public class BlueprintCursorSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
-  private const float HoverRadius = 0.4f;
+  private const float VertexHoverRadius = 0.4f;
+  private const float EdgeHoverRadius = 0.2f;
 
   private readonly QueryDescription _blueprintQuery =
     new QueryDescription().WithAll<Blueprint, BlueprintMesh, ControlSubjectInput<CursorInput>>();
@@ -25,8 +27,9 @@ public class BlueprintCursorSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
       var cx = cursorInput.Payload.WorldX;
       var cy = cursorInput.Payload.WorldY;
 
-      var bestId = 0;
-      var bestDist = HoverRadius * HoverRadius;
+      // Vertex hover
+      var bestVertexId = 0;
+      var bestDist2 = VertexHoverRadius * VertexHoverRadius;
 
       GameWorld.Ecs.Query(in _verticesQuery, (
         ref StableId stableId,
@@ -36,13 +39,36 @@ public class BlueprintCursorSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
         var dy = vertex.Y - cy;
         var dist2 = dx * dx + dy * dy;
 
-        if (dist2 < bestDist) {
-          bestDist = dist2;
-          bestId = stableId.Id;
+        if (dist2 < bestDist2) {
+          bestDist2 = dist2;
+          bestVertexId = stableId.Id;
         }
       });
 
-      mesh.HoveredVertexId = bestId;
+      mesh.HoveredVertexId = bestVertexId;
+
+      // Edge hover — только когда ни одна вершина не заховерена
+      var hoveredEdgeA = 0;
+      var hoveredEdgeB = 0;
+
+      if (bestVertexId == 0) {
+        var bestEdgeDist = EdgeHoverRadius;
+
+        foreach (var (a, b) in BlueprintGeometry.GetEdges(mesh.Triangles)) {
+          var (ax, ay) = BlueprintGeometry.GetVertexPos(a, GameWorld);
+          var (bx, by) = BlueprintGeometry.GetVertexPos(b, GameWorld);
+          var dist = BlueprintGeometry.DistanceToSegment(cx, cy, ax, ay, bx, by);
+
+          if (dist < bestEdgeDist) {
+            bestEdgeDist = dist;
+            hoveredEdgeA = a;
+            hoveredEdgeB = b;
+          }
+        }
+      }
+
+      mesh.HoveredEdgeA = hoveredEdgeA;
+      mesh.HoveredEdgeB = hoveredEdgeB;
     });
   }
 }

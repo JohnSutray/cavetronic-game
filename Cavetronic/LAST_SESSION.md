@@ -1,141 +1,166 @@
-# Сессия: Анализ требований — Редактор блюпринтов
+# Сессия: Blueprint Editor — баги, фичи, инпут-архитектура
 
 ---
 
-## Спецификация (текущее состояние)
+## Что было сделано
 
-### Переход в редактор
-- F1 из состояния главного меню → состояние `BlueprintEditor`
-- Собирается упрощённый игровой мир
-- Открывается untitled-префаб: один треугольник в центре
+### 1. Исправлен drag-snap (вершина прыгала к курсору при клике)
 
-### Сцена
-- Красная точка в (0,0) — виртуальный центр объекта
-- Всё на сцене — треугольники с общими вершинами (меш)
-- Только один меш на сцене, нельзя создать второй, нельзя удалить последний треугольник полностью
+**Причина:** MoveSystem использовал delta-движение (`vertex.X += EndX - StartX`).
+При тикрейте InputSystem 30 Гц и FPS 120 тот же delta применялся ~4 раза за тик → накопительный эффект.
 
-### Рендер
-- Вершины — синие точки
-- Рёбра — линии между вершинами
-- Hover на вершине / ребре → смена цвета
+**Решение:** Offset-based абсолютное позиционирование.
+```csharp
+// Захват один раз при начале нового drag'а
+_dragOffsetX = vertex.X - lmb.Payload.EndX;
+_dragOffsetY = vertex.Y - lmb.Payload.EndY;
 
-### Выделение
-- LMB press на вершине → вершина выделена (предыдущее выделение сбрасывается)
-- Shift+LMB на смежной вершине → добавить в выделение (макс. 2)
-- Несмежные вершины выбрать нельзя
-- Сброс выделения: клик внутри меша, LMB на другой вершине (без Shift), создание треугольника
-- Escape, клик снаружи меша — выделение НЕ сбрасывают
+// Применение каждый тик — идемпотентно
+vertex.X = lmb.Payload.EndX + _dragOffsetX;
+vertex.Y = lmb.Payload.EndY + _dragOffsetY;
+```
 
-### Перемещение вершины
-- LMB press на вершине + drag → тянем вершину за мышью
-- Если было выделено несколько — только последняя тянется, остальные сбрасываются
-- Ограничение: ни одно ребро меша не должно пересекать другое ребро этого же меша
-
-### Создание треугольника
-- Выделить 2 смежные вершины (Shift+LMB)
-- Навести мышь → превью треугольника следует за курсором:
-  - Синий — позиция валидна (новые рёбра не пересекают существующие)
-  - Красный — позиция невалидна
-- LMB по валидной области → новая вершина + новый треугольник
-- После создания: выделение сбрасывается
-
-### Удаление вершины
-- RMB click на вершине → удалить
-- Запрет: нельзя удалить вершину одиночного треугольника (≤3 вершин в меше)
-- После удаления: система автоматически перетриангулирует осиротевшие вершины (ear-clipping по дыре), без пересечений
-- Осиротевшая вершина без валидной тройки → удаляется
-
-### Камера
-- RMB drag по пустой области → панорамирование (Figma-стиль)
-- Зум — колёсико мыши
-
-### Перемещение всего меша
-- LMB drag внутри меша (без выделенных вершин) → весь связный меш двигается
-
-### Сайдбар
-- Список всех доступных префабов для редактирования
-- При запуске — только untitled, редактируем его
-- После любых изменений рядом с именем префаба появляются две иконки-кнопки:
-  - **Сохранить** — записывает JSON-файл на диск в папку `Prefabs/`
-  - **Откатить** — приводит префаб к последнему сохранённому состоянию
-- В режиме редактора: файлы хранятся в `Prefabs/`
-- В игре: пользовательские префабы хранятся в игровом мире (отдельно от редакторских)
+Дополнительно: убрана побочная мутация `SelectedId1 = 0` из `GetDragTargetId`.
 
 ---
 
-## Техническая архитектура
+### 2. Исправлена валидация перемещения вершины
 
-### Редактор как ECS-сущность
+**IsVertexMoveValid теперь содержит 3 проверки:**
 
-Редактор — не отдельное приложение, а ECS-сущность с компонентом-маркером `Blueprint`.
-Работает в мультиплеере по тем же правилам, что спавнер и дрон:
-- Является `ControlSubject` — в него можно "вселиться" через стандартный механизм управления
-- При вселении игрок поставляет инпут в виде координат курсора и экшенов мыши
-
-### Типы инпута
-
-`ControlSubjectInput<T>` — компонент на Blueprint-сущности, в поле `T Payload` лежит пейлоад конкретного типа инпута.
-
-| Тип `T` | Поля пейлоада | Смысл |
-|---------|--------------|-------|
-| `CursorInput` | `Vector2 WorldPosition` | Текущая позиция курсора в мировых координатах |
-| `CursorLeftMoveAction` | `Vector2 Start`, `Vector2 End`, `bool PreviouslyActive` | LMB зажат + движение мыши; `PreviouslyActive = false` = первый фрейм (press) |
-| `CursorRightMoveAction` | `Vector2 Start`, `Vector2 End` | RMB зажат + движение; если `Start == End` (delta = 0) — трактуется как click |
-| `InputExclusive` | `int OwnerStableId` | Маркер эксклюзивного контроля (см. ниже) |
-| `ShiftModifier` | — | Маркер: Shift зажат в этом фрейме |
-| `ScrollAction` | `float Delta` | Зум колёсиком; **не уходит на сервер**, применяется клиентом напрямую к сущности таргета камеры |
-
-### Эксклюзивный контроль: `ControlSubjectInput<InputExclusive>`
-
-Двойная роль:
-1. **Обычный инпут** — любой вселившийся игрок может отправить его (нажатие F "взять контроль")
-2. **Системный маркер** — если компонент присутствует на сущности, InputSystem применяет правило:
-   - Инпуты любого типа принимаются **только** от `OwnerStableId`, записанного в этом компоненте
-   - Исключение: `ControlSubjectInput<InputExclusive>` принимается от **всех** — это единственный способ перехватить контроль
-
-**Поведение при нескольких игроках в редакторе:**
-- Оба вселились, оба видят редактор
-- Кто последним нажал F → его `OwnerStableId` записывается в `ControlSubjectInput<InputExclusive>`
-- Только он управляет; второй может нажать F чтобы перехватить
-
-### Системы редактора
-
-**`BlueprintCursorSystem`**
-- Query: `q(Blueprint, ControlSubjectInput<CursorInput>)`
-- Рисует кружок-курсор в позиции мыши
-- Проходится по вершинам меша, выставляет им hover-состояние по proximity
-
-**`BlueprintVertexSelectSystem`**
-- Query: `q(Blueprint, ControlSubjectInput<CursorLeftMoveAction>)` где `Payload.PreviouslyActive = false`
-- На первом фрейме LMB drag: помечает вершину под курсором как выбранную
-
-**`BlueprintVertexMoveSystem`**
-- Query: `q(Blueprint, ControlSubjectInput<CursorLeftMoveAction>)`
-- Пока LMB зажат и есть движение: двигает выбранную вершину на `Delta`
-
-**`BlueprintCameraSystem`**
-- Query: `q(Blueprint, ControlSubjectInput<CursorRightMoveAction>)`
-- Панорамирует камеру на `Delta`
+1. **Edge crossing** — движущиеся рёбра не пересекают статичные (было, слабее)
+2. **Winding** — для каждого содержащего треугольника: `sign(Side_orig) == sign(Side_new)`.
+   Ловит кейс "вершина проваливается через базовое ребро" — edge crossing тест его пропускает,
+   т.к. смежные рёбра пропускаются из проверки.
+3. **Not inside foreign triangle** — новая позиция не попадает внутрь чужого треугольника.
 
 ---
 
-## Открытых технических вопросов нет
+### 3. Исправлена валидация создания нового треугольника
+
+**Проблема 1:** При однотреугольном меше можно было нарисовать треугольник, частично перекрывающий
+существующий, если новая вершина не погружалась внутрь, но ребро цепляло.
+
+**Исправление IsValidNewVertex:**
+- Winding check: W должна быть на стороне, противоположной третьей вершине любого треугольника,
+  разделяющего базовое ребро v1-v2 (`newSide * existingSide < 0`)
+- Edge crossing: каждое из двух новых рёбер (W→v1, W→v2) проверяется только против рёбер,
+  не делящих его собственный endpoint (не оба вместе, а по отдельности)
+
+**Проблема 2:** Старый код пропускал рёбра, касающиеся v1 ИЛИ v2 — для обоих новых рёбер.
+В однотреугольном меше с тремя рёбрами все три рёбра имеют хотя бы один конец в v1 или v2,
+в результате ни одно ребро не проверялось.
 
 ---
 
-## Разрешённые противоречия
+### 4. Добавлено создание треугольника из трёх существующих вершин
 
-| Противоречие | Решение |
-|---|---|
-| LMB select vs LMB drag | Press = select, движение после = drag |
-| Drag при нескольких выделенных | Только последняя тянется, остальные сбрасываются |
-| LMB на другой вершине без Shift | Сбрасывает предыдущее выделение |
-| Клик внутри меша в режиме выделения | Сбрасывает выделение |
-| Escape / клик снаружи меша | Выделение не сбрасывают |
-| Несмежные вершины | Нельзя выбрать две несмежные |
-| Удаление из одиночного треугольника | Запрещено |
-| RMB click vs RMB drag | Click = удаление вершины, drag = камера |
-| Перетриангуляция после удаления | Автоматическая (ear-clipping) |
-| Несколько мешей на сцене | Нельзя, всегда один меш |
-| "Нельзя переместить внутрь полигона" | Ни одно ребро не должно пересекать другое ребро меша |
-| Создание треугольника сбрасывает выделение | Да |
+**Поведение:** Если выделены 2 вершины и нажать LMB на третью уже существующую →
+вместо выделения формируется треугольник из трёх существующих вершин.
+
+**IsValidTriangleFromExisting** (отдельная функция):
+- Не вызывает IsInsideMesh (существующая вершина по определению на меше → ложный reject)
+- Проверяет: не дублирует треугольник, winding, edge crossings
+
+```csharp
+// В BlueprintVertexSelectSystem.Tick:
+if (mesh.SelectedId1 != 0 && mesh.SelectedId2 != 0
+  && hoveredId != mesh.SelectedId1 && hoveredId != mesh.SelectedId2) {
+  TryCreateTriangleFromExisting(ref mesh, hoveredId);
+}
+```
+
+---
+
+### 5. Добавлен hover на рёбра + удаление ребра по RMB
+
+**BlueprintCursorSystem** — edge hover (только когда HoveredVertexId == 0):
+```csharp
+foreach (var (a, b) in BlueprintGeometry.GetEdges(mesh.Triangles)) {
+  var dist = BlueprintGeometry.DistanceToSegment(cx, cy, ax, ay, bx, by);
+  if (dist < bestEdgeDist) { ... hoveredEdgeA = a; hoveredEdgeB = b; }
+}
+```
+Порог EdgeHoverRadius = 0.2 ед. Приоритет: vertex hover (0.4 ед.) блокирует edge hover.
+
+**BlueprintRenderSystem** — hover-цвет рёбра:
+- ColorEdge = (0, 200, 255), толщина 0.08
+- ColorEdgeHover = (255, 200, 60), толщина 0.18
+- Проверка: `(a == hoveredEdgeA && b == hoveredEdgeB) || (a == hoveredEdgeB && b == hoveredEdgeA)`
+
+**BlueprintEdgeDeleteSystem** (новый файл):
+- Query: Blueprint + BlueprintMesh + ControlSubjectInput\<CursorRightClickAction\>
+- Охранники: `!rclick.Active` → return; `HoveredVertexId != 0` → return; `HoveredEdgeA == 0` → return
+- `TryDeleteEdge`: найти треугольники с обоими концами ребра → remaining set → reject если < 3 вершин →
+  orphaned = в удалённых, но не в remaining → новый массив треугольников → PendingDestroy для orphaned
+
+---
+
+### 6. Исправлен RMB — события не пропадают при тикрейте < FPS
+
+**Причина:** `IsMouseButtonReleased` — true ровно один Raylib-кадр. При 30 Гц тике и 120 FPS
+вероятность попасть в нужный кадр ≈ 25%. Дополнительно: `_rmbMoved` не сбрасывался,
+если тик пропустил кадр с press (оставался true от предыдущего drag'а).
+
+**Решение в InputSystem:**
+```csharp
+public override void Tick(float dt) {
+  // RMB tracking — каждый Raylib-кадр, ДО аккумулятора
+  if (cameraSystem != null) {
+    var rmbPressed = Raylib.IsMouseButtonPressed(MouseButton.Right);
+    // ... rmbDown, rmbReleased ...
+    if (rmbPressed) { _rmbLastScreenPos = mouseScreen; _rmbMoved = false; }
+    if (rmbDown && !rmbPressed) { if (delta > RmbDragThresholdPx) _rmbMoved = true; }
+    if (rmbReleased && !_rmbMoved) _rmbClickLatched = true;
+  }
+
+  _accumulator += dt;
+  if (_accumulator < _tickInterval) return;
+  _accumulator -= _tickInterval;
+
+  // Потребляем залатченный клик
+  var rmbClick = _rmbClickLatched;
+  _rmbClickLatched = false;
+  // ...
+}
+```
+
+---
+
+## Изменённые файлы
+
+| Файл | Что изменилось |
+|------|---------------|
+| `Blueprint/BlueprintComponents.cs` | Добавлены `HoveredEdgeA`, `HoveredEdgeB` в `BlueprintMesh` |
+| `Blueprint/BlueprintGeometry.cs` | Добавлены `DistanceToSegment`, `IsValidTriangleFromExisting`; переписаны `IsVertexMoveValid`, `IsValidNewVertex` |
+| `Systems/BlueprintCursorSystem.cs` | Добавлен edge hover |
+| `Systems/BlueprintVertexSelectSystem.cs` | TryCreateTriangleFromExisting, AppendTriangle |
+| `Systems/BlueprintVertexMoveSystem.cs` | Полный переход на offset-based drag |
+| `Systems/BlueprintEdgeDeleteSystem.cs` | **Новый файл** |
+| `Systems/Client/BlueprintRenderSystem.cs` | ColorEdgeHover, LineThicknessHover, hover-рендер рёбер |
+| `Systems/Client/InputSystem.cs` | RMB latching (`_rmbClickLatched`), вынос RMB tracking до аккумулятора |
+| `Program.cs` | Добавлен `BlueprintEdgeDeleteSystem` перед `BlueprintVertexDeleteSystem` |
+
+---
+
+## Текущее состояние редактора
+
+Все основные UX-функции реализованы и работают:
+- [x] Hover на вершинах и рёбрах
+- [x] Выделение 1 или 2 смежных вершин
+- [x] Drag вершины с корректным offset (нет snap, нет накопления)
+- [x] Создание нового треугольника (новая вершина в пустой области)
+- [x] Создание треугольника из трёх существующих вершин
+- [x] Удаление вершины по RMB
+- [x] Удаление ребра по RMB
+- [x] Полная валидация: edge crossing, winding, not-inside-foreign
+- [x] RMB click vs drag корректно различается при любом FPS/тикрейте
+- [x] Камера: панорамирование RMB drag
+
+## Что ещё не реализовано (из оригинальной спецификации)
+
+- [ ] LMB drag внутри меша → перемещение всего меша
+- [ ] Ear-clipping ретриангуляция при удалении вершины (сейчас удаляются осиротевшие вершины)
+- [ ] Scroll wheel зум
+- [ ] Сохранение/загрузка префабов (JSON в `Prefabs/`)
+- [ ] Сайдбар со списком префабов

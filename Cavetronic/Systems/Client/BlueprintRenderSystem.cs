@@ -9,10 +9,12 @@ namespace Cavetronic.Systems.Client;
 public class BlueprintRenderSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   private const float VertexRadius = 0.2f;
   private const float LineThickness = 0.08f;
+  private const float LineThicknessHover = 0.18f;
   private const float OriginRadius = 0.15f;
   private const float CursorRadius = 0.12f;
 
   private static readonly Color ColorEdge = new(0, 200, 255, 255);
+  private static readonly Color ColorEdgeHover = new(255, 200, 60, 255);
   private static readonly Color ColorVertex = new(80, 140, 255, 255);
   private static readonly Color ColorVertexHover = new(255, 220, 80, 255);
   private static readonly Color ColorVertexSelected = new(255, 255, 255, 255);
@@ -54,18 +56,27 @@ public class BlueprintRenderSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
     var triangles = mesh.Triangles;
     var selectedId1 = mesh.SelectedId1;
     var selectedId2 = mesh.SelectedId2;
-    var hoveredId = mesh.HoveredVertexId;
+    var hoveredVertexId = mesh.HoveredVertexId;
+    var hoveredEdgeA = mesh.HoveredEdgeA;
+    var hoveredEdgeB = mesh.HoveredEdgeB;
 
     // Рёбра
     foreach (var (a, b) in BlueprintGeometry.GetEdges(triangles)) {
       var (ax, ay) = BlueprintGeometry.GetVertexPos(a, GameWorld);
       var (bx, by) = BlueprintGeometry.GetVertexPos(b, GameWorld);
-      Raylib.DrawLineEx(new Vector2(ax, ay), new Vector2(bx, by), LineThickness, ColorEdge);
+
+      var isHovered = (a == hoveredEdgeA && b == hoveredEdgeB)
+        || (a == hoveredEdgeB && b == hoveredEdgeA);
+
+      var color = isHovered ? ColorEdgeHover : ColorEdge;
+      var thickness = isHovered ? LineThicknessHover : LineThickness;
+
+      Raylib.DrawLineEx(new Vector2(ax, ay), new Vector2(bx, by), thickness, color);
     }
 
     // Вершины
     GameWorld.Ecs.Query(in _verticesQuery, (ref StableId stableId, ref BlueprintVertex vertex) => {
-      var color = GetVertexColor(stableId.Id, selectedId1, selectedId2, hoveredId);
+      var color = GetVertexColor(stableId.Id, selectedId1, selectedId2, hoveredVertexId);
       Raylib.DrawCircleV(new Vector2(vertex.X, vertex.Y), VertexRadius, color);
     });
 

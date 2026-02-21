@@ -5,6 +5,28 @@ public static class BlueprintGeometry {
 
   // ── Примитивы ──────────────────────────────────────────────────────────────
 
+  public static float DistanceToSegment(
+    float px, float py,
+    float ax, float ay, float bx, float by
+  ) {
+    var dx = bx - ax;
+    var dy = by - ay;
+    var len2 = dx * dx + dy * dy;
+
+    if (len2 < Epsilon) {
+      var epx = px - ax;
+      var epy = py - ay;
+      return MathF.Sqrt(epx * epx + epy * epy);
+    }
+
+    var t = Math.Clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0f, 1f);
+    var cx2 = ax + t * dx;
+    var cy2 = ay + t * dy;
+    var ddx = px - cx2;
+    var ddy = py - cy2;
+    return MathF.Sqrt(ddx * ddx + ddy * ddy);
+  }
+
   private static float Cross(float ax, float ay, float bx, float by) =>
     ax * by - ay * bx;
 
@@ -243,6 +265,81 @@ public static class BlueprintGeometry {
       var (cx, cy) = GetVertexPos(t2, world);
 
       if (PointInTriangle(nx, ny, ax, ay, bx, by, cx, cy)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  // Валидирует создание треугольника из трёх уже существующих вершин.
+  // Не проверяет IsInsideMesh — существующая вершина заведомо находится на границе меша.
+  public static bool IsValidTriangleFromExisting(
+    int v1Id, int v2Id, int v3Id,
+    int[] triangles,
+    GameWorld world
+  ) {
+    if (v3Id == v1Id || v3Id == v2Id) {
+      return false;
+    }
+
+    // Такой треугольник не должен уже существовать
+    for (var i = 0; i < triangles.Length; i += 3) {
+      var hasV1 = triangles[i] == v1Id || triangles[i + 1] == v1Id || triangles[i + 2] == v1Id;
+      var hasV2 = triangles[i] == v2Id || triangles[i + 1] == v2Id || triangles[i + 2] == v2Id;
+      var hasV3 = triangles[i] == v3Id || triangles[i + 1] == v3Id || triangles[i + 2] == v3Id;
+
+      if (hasV1 && hasV2 && hasV3) {
+        return false;
+      }
+    }
+
+    var (v1x, v1y) = GetVertexPos(v1Id, world);
+    var (v2x, v2y) = GetVertexPos(v2Id, world);
+    var (v3x, v3y) = GetVertexPos(v3Id, world);
+
+    // Проверка обмотки: v3 должна быть на противоположной стороне ребра v1-v2
+    // от третьих вершин всех треугольников, уже использующих это ребро.
+    for (var i = 0; i < triangles.Length; i += 3) {
+      var t0 = triangles[i];
+      var t1 = triangles[i + 1];
+      var t2 = triangles[i + 2];
+
+      var hasV1 = t0 == v1Id || t1 == v1Id || t2 == v1Id;
+      var hasV2 = t0 == v2Id || t1 == v2Id || t2 == v2Id;
+
+      if (!hasV1 || !hasV2) {
+        continue;
+      }
+
+      var thirdId = t0 != v1Id && t0 != v2Id ? t0 : t1 != v1Id && t1 != v2Id ? t1 : t2;
+      var (tx, ty) = GetVertexPos(thirdId, world);
+
+      var existingSide = Side(tx, ty, v1x, v1y, v2x, v2y);
+      var newSide = Side(v3x, v3y, v1x, v1y, v2x, v2y);
+
+      if (newSide * existingSide >= 0) {
+        return false;
+      }
+    }
+
+    // Проверка рёбер: новые рёбра v1-v3 и v2-v3 не должны пересекать существующие рёбра.
+    // Каждое проверяется только против рёбер, не делящих его endpoint.
+    foreach (var (a, b) in GetEdges(triangles)) {
+      if ((a == v1Id || a == v2Id) && (b == v1Id || b == v2Id)) {
+        continue; // базовое ребро v1-v2 — станет общим
+      }
+
+      var (ax, ay) = GetVertexPos(a, world);
+      var (bx, by) = GetVertexPos(b, world);
+
+      if (a != v1Id && b != v1Id && a != v3Id && b != v3Id
+        && SegmentsIntersect(v3x, v3y, v1x, v1y, ax, ay, bx, by)) {
+        return false;
+      }
+
+      if (a != v2Id && b != v2Id && a != v3Id && b != v3Id
+        && SegmentsIntersect(v3x, v3y, v2x, v2y, ax, ay, bx, by)) {
         return false;
       }
     }

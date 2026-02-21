@@ -61,6 +61,7 @@ public class Program {
       new BlueprintCursorSystem(gameWorld),
       new BlueprintVertexSelectSystem(gameWorld),
       new BlueprintVertexMoveSystem(gameWorld),
+      new BlueprintEdgeDeleteSystem(gameWorld),
       new BlueprintVertexDeleteSystem(gameWorld),
       cameraSystem,
       new BlueprintCameraSystem(gameWorld, cameraSystem),

@@ -17,9 +17,34 @@ public class InputSystem(GameWorld gameWorld, CameraSystem? cameraSystem = null,
   private Vector2 _lmbLastWorldPos;
   private Vector2 _rmbLastScreenPos;
   private bool _rmbMoved;
+  private bool _rmbClickLatched; // лататный клик: читаем каждый Raylib-фрейм, потребляем на каждом тике
   private const float RmbDragThresholdPx = 4f;
 
   public override void Tick(float dt) {
+    // RMB-состояние читаем каждый Raylib-фрейм, чтобы не пропустить одноразовые события
+    // (IsMouseButtonReleased = true только один фрейм; при tick rate < fps событие иначе теряется).
+    if (cameraSystem != null) {
+      var mouseScreen = Raylib.GetMousePosition();
+      var rmbPressed = Raylib.IsMouseButtonPressed(MouseButton.Right);
+      var rmbDown = Raylib.IsMouseButtonDown(MouseButton.Right);
+      var rmbReleased = Raylib.IsMouseButtonReleased(MouseButton.Right);
+
+      if (rmbPressed) {
+        _rmbLastScreenPos = mouseScreen;
+        _rmbMoved = false;
+      }
+
+      if (rmbDown && !rmbPressed) {
+        if ((mouseScreen - _rmbLastScreenPos).Length() > RmbDragThresholdPx) {
+          _rmbMoved = true;
+        }
+      }
+
+      if (rmbReleased && !_rmbMoved) {
+        _rmbClickLatched = true;
+      }
+    }
+
     _accumulator += dt;
 
     if (_accumulator < _tickInterval) {
@@ -37,9 +62,12 @@ public class InputSystem(GameWorld gameWorld, CameraSystem? cameraSystem = null,
     // Mouse state
     var mouseWorld = Vector2.Zero;
     var lmbDown = false;
-    var rmbClick = false;
     var shiftDown = false;
     var lmbLastWorldPos = _lmbLastWorldPos;
+
+    // Потребляем залатченный RMB-клик
+    var rmbClick = _rmbClickLatched;
+    _rmbClickLatched = false;
 
     if (cameraSystem != null) {
       var mouseScreen = Raylib.GetMousePosition();
@@ -47,9 +75,6 @@ public class InputSystem(GameWorld gameWorld, CameraSystem? cameraSystem = null,
 
       lmbDown = Raylib.IsMouseButtonDown(MouseButton.Left);
       var lmbPressed = Raylib.IsMouseButtonPressed(MouseButton.Left);
-      var rmbDown = Raylib.IsMouseButtonDown(MouseButton.Right);
-      var rmbPressed = Raylib.IsMouseButtonPressed(MouseButton.Right);
-      var rmbReleased = Raylib.IsMouseButtonReleased(MouseButton.Right);
       shiftDown = Raylib.IsKeyDown(KeyboardKey.LeftShift)
         || Raylib.IsKeyDown(KeyboardKey.RightShift);
 
@@ -57,21 +82,6 @@ public class InputSystem(GameWorld gameWorld, CameraSystem? cameraSystem = null,
         _lmbLastWorldPos = mouseWorld;
         lmbLastWorldPos = mouseWorld;
       }
-
-      if (rmbPressed) {
-        _rmbLastScreenPos = mouseScreen;
-        _rmbMoved = false;
-      }
-
-      if (rmbDown && !rmbPressed) {
-        var screenDelta = mouseScreen - _rmbLastScreenPos;
-
-        if (screenDelta.Length() > RmbDragThresholdPx) {
-          _rmbMoved = true;
-        }
-      }
-
-      rmbClick = rmbReleased && !_rmbMoved;
     }
 
     GameWorld.Ecs.Query(in _playersQuery, (Entity entity) => {
