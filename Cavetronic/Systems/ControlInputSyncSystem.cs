@@ -21,6 +21,18 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
   private readonly QueryDescription _subjectMoveRightQuery =
     new QueryDescription().WithAll<ControlSubject, ControlSubjectInput<MoveRight>>();
 
+  private readonly QueryDescription _subjectCursorInputQuery =
+    new QueryDescription().WithAll<ControlSubject, ControlSubjectInput<CursorInput>>();
+
+  private readonly QueryDescription _subjectCursorLeftQuery =
+    new QueryDescription().WithAll<ControlSubject, ControlSubjectInput<CursorLeftMoveAction>>();
+
+  private readonly QueryDescription _subjectCursorRightQuery =
+    new QueryDescription().WithAll<ControlSubject, ControlSubjectInput<CursorRightClickAction>>();
+
+  private readonly QueryDescription _subjectShiftQuery =
+    new QueryDescription().WithAll<ControlSubject, ControlSubjectInput<ShiftModifier>>();
+
   private readonly CommandBuffer _buffer = new();
 
   public override void Tick(float dt) {
@@ -29,6 +41,10 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
     AdvanceInput<Action2>(in _subjectAction2Query);
     AdvanceInput<MoveLeft>(in _subjectMoveLeftQuery);
     AdvanceInput<MoveRight>(in _subjectMoveRightQuery);
+    AdvanceInput<CursorInput>(in _subjectCursorInputQuery);
+    AdvanceInput<CursorLeftMoveAction>(in _subjectCursorLeftQuery);
+    AdvanceInput<CursorRightClickAction>(in _subjectCursorRightQuery);
+    AdvanceInput<ShiftModifier>(in _subjectShiftQuery);
 
     // Phase 2: sync — propagate player markers → subject entities
     GameWorld.Ecs.Query(in _playersQuery, (
@@ -51,6 +67,10 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
       SyncInput<Action2>(playerEntity, subjectEntity, stableId.Id);
       SyncInput<MoveLeft>(playerEntity, subjectEntity, stableId.Id);
       SyncInput<MoveRight>(playerEntity, subjectEntity, stableId.Id);
+      SyncInput<CursorInput>(playerEntity, subjectEntity, stableId.Id);
+      SyncInput<CursorLeftMoveAction>(playerEntity, subjectEntity, stableId.Id);
+      SyncInput<CursorRightClickAction>(playerEntity, subjectEntity, stableId.Id);
+      SyncInput<ShiftModifier>(playerEntity, subjectEntity, stableId.Id);
     });
 
     // Phase 3: cleanup — remove markers where (!Active && !PreviouslyActive)
@@ -58,6 +78,10 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
     CleanupInput<Action2>(in _subjectAction2Query);
     CleanupInput<MoveLeft>(in _subjectMoveLeftQuery);
     CleanupInput<MoveRight>(in _subjectMoveRightQuery);
+    CleanupInput<CursorInput>(in _subjectCursorInputQuery);
+    CleanupInput<CursorLeftMoveAction>(in _subjectCursorLeftQuery);
+    CleanupInput<CursorRightClickAction>(in _subjectCursorRightQuery);
+    CleanupInput<ShiftModifier>(in _subjectShiftQuery);
   }
 
   private void AdvanceInput<T>(in QueryDescription query) where T : struct {
@@ -76,13 +100,16 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
       return;
     }
 
+    var playerInput = GameWorld.Ecs.Get<ControlSubjectInput<T>>(playerEntity);
+
     if (!GameWorld.Ecs.Has<ControlSubjectInput<T>>(subjectEntity)) {
       GameWorld.Ecs.Add(
         subjectEntity,
         new ControlSubjectInput<T> {
           Active = true,
           PreviouslyActive = false,
-          OwnerId = ownerId
+          OwnerId = ownerId,
+          Payload = playerInput.Payload
         }
       );
     }
@@ -92,6 +119,7 @@ public class ControlInputSyncSystem(GameWorld gameWorld) : EcsSystem(gameWorld) 
       if (!input.Active) {
         input.Active = true;
         input.OwnerId = ownerId;
+        input.Payload = playerInput.Payload;
       }
     }
   }

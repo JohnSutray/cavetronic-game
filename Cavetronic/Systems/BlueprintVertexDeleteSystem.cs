@@ -19,7 +19,7 @@ public class BlueprintVertexDeleteSystem(GameWorld gameWorld) : EcsSystem(gameWo
       ref BlueprintMesh mesh,
       ref ControlSubjectInput<CursorRightClickAction> rclick
     ) => {
-      if (!rclick.Active && !rclick.PreviouslyActive) {
+      if (!rclick.Active) {
         return;
       }
 

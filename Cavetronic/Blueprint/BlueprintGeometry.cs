@@ -90,8 +90,12 @@ public static class BlueprintGeometry {
     }
   }
 
-  // Новая вершина в (wx, wy) валидна, если её два новых ребра (к v1Id и v2Id) не пересекают
-  // ни одно существующее ребро меша (кроме рёбер, смежных с v1Id или v2Id).
+  // Новая вершина в (wx, wy) валидна, если:
+  // 1) она не внутри меша,
+  // 2) W находится на противоположной стороне базового ребра v1-v2 от всех треугольников,
+  //    которые уже это ребро используют (иначе новый треугольник перекроет существующий),
+  // 3) новые рёбра W→v1 и W→v2 не пересекают рёбра меша (каждый проверяется
+  //    только против рёбер, не делящих его endpoint).
   public static bool IsValidNewVertex(
     float wx, float wy,
     int v1Id, int v2Id,
@@ -105,19 +109,50 @@ public static class BlueprintGeometry {
     var (v1x, v1y) = GetVertexPos(v1Id, world);
     var (v2x, v2y) = GetVertexPos(v2Id, world);
 
+    // Проверка обмотки: W должна быть на стороне, противоположной третьей вершине
+    // любого существующего треугольника, делящего ребро v1-v2.
+    for (var i = 0; i < triangles.Length; i += 3) {
+      var t0 = triangles[i];
+      var t1 = triangles[i + 1];
+      var t2 = triangles[i + 2];
+
+      var hasV1 = t0 == v1Id || t1 == v1Id || t2 == v1Id;
+      var hasV2 = t0 == v2Id || t1 == v2Id || t2 == v2Id;
+
+      if (!hasV1 || !hasV2) {
+        continue;
+      }
+
+      // Третья вершина этого треугольника (не v1 и не v2)
+      var thirdId = t0 != v1Id && t0 != v2Id ? t0 : t1 != v1Id && t1 != v2Id ? t1 : t2;
+      var (tx, ty) = GetVertexPos(thirdId, world);
+
+      var existingSide = Side(tx, ty, v1x, v1y, v2x, v2y);
+      var newSide = Side(wx, wy, v1x, v1y, v2x, v2y);
+
+      // W должна быть строго с другой стороны от третьей вершины
+      if (newSide * existingSide >= 0) {
+        return false;
+      }
+    }
+
+    // Проверка рёбер: W→v1 и W→v2 не должны пересекать рёбра меша.
+    // Каждое новое ребро проверяется только против рёбер, не делящих его endpoint
+    // (рёбра с общим endpoint не могут дать строгое пересечение).
     foreach (var (a, b) in GetEdges(triangles)) {
-      if (a == v1Id || b == v1Id || a == v2Id || b == v2Id) {
+      // Базовое ребро v1-v2 пропускаем — оно станет общим ребром нового треугольника
+      if ((a == v1Id || a == v2Id) && (b == v1Id || b == v2Id)) {
         continue;
       }
 
       var (ax, ay) = GetVertexPos(a, world);
       var (bx, by) = GetVertexPos(b, world);
 
-      if (SegmentsIntersect(wx, wy, v1x, v1y, ax, ay, bx, by)) {
+      if (a != v1Id && b != v1Id && SegmentsIntersect(wx, wy, v1x, v1y, ax, ay, bx, by)) {
         return false;
       }
 
-      if (SegmentsIntersect(wx, wy, v2x, v2y, ax, ay, bx, by)) {
+      if (a != v2Id && b != v2Id && SegmentsIntersect(wx, wy, v2x, v2y, ax, ay, bx, by)) {
         return false;
       }
     }
@@ -125,28 +160,26 @@ public static class BlueprintGeometry {
     return true;
   }
 
-  // Возвращает true, если перемещение вершины vertexId в (nx, ny) не создаёт пересечений рёбер.
+  // Возвращает true, если перемещение вершины vertexId в (nx, ny) не создаёт пересечений рёбер,
+  // не инвертирует обмотку треугольников и не помещает вершину внутрь чужого треугольника.
   public static bool IsVertexMoveValid(
     int vertexId,
     float nx, float ny,
     int[] triangles,
     GameWorld world
   ) {
+    var (origX, origY) = GetVertexPos(vertexId, world);
     var edges = GetEdges(triangles);
 
-    // Рёбра, смежные с перемещаемой вершиной (их конечные точки изменятся).
     var movingEdges = edges.Where(e => e.A == vertexId || e.B == vertexId).ToList();
-
-    // Статичные рёбра (не касаются перемещаемой вершины).
     var staticEdges = edges.Where(e => e.A != vertexId && e.B != vertexId).ToList();
 
+    // Проверка 1: движущиеся рёбра не пересекают статичные рёбра.
     foreach (var (mA, mB) in movingEdges) {
-      // Другой конец движущегося ребра.
-      int otherId = mA == vertexId ? mB : mA;
+      var otherId = mA == vertexId ? mB : mA;
       var (ox, oy) = GetVertexPos(otherId, world);
 
       foreach (var (sA, sB) in staticEdges) {
-        // Пропускаем ребро, если оно смежно с other (общая вершина).
         if (sA == otherId || sB == otherId) {
           continue;
         }
@@ -157,6 +190,60 @@ public static class BlueprintGeometry {
         if (SegmentsIntersect(nx, ny, ox, oy, sax, say, sbx, sby)) {
           return false;
         }
+      }
+    }
+
+    // Проверка 2: обмотка каждого треугольника, содержащего вершину, должна сохраниться.
+    // Это ловит случай, когда вершина "проваливается" через базовое ребро треугольника —
+    // пересечение рёбер не возникает (смежные рёбра пропускаются), но треугольник инвертируется.
+    for (var i = 0; i < triangles.Length; i += 3) {
+      var t0 = triangles[i];
+      var t1 = triangles[i + 1];
+      var t2 = triangles[i + 2];
+
+      if (t0 != vertexId && t1 != vertexId && t2 != vertexId) {
+        continue;
+      }
+
+      int baseA, baseB;
+
+      if (t0 == vertexId) { baseA = t1; baseB = t2; }
+      else if (t1 == vertexId) { baseA = t0; baseB = t2; }
+      else { baseA = t0; baseB = t1; }
+
+      var (ax, ay) = GetVertexPos(baseA, world);
+      var (bx, by) = GetVertexPos(baseB, world);
+
+      var origSide = Side(origX, origY, ax, ay, bx, by);
+
+      if (MathF.Abs(origSide) < Epsilon) {
+        continue; // исходный треугольник вырожден — пропускаем
+      }
+
+      var newSide = Side(nx, ny, ax, ay, bx, by);
+
+      // Другой знак или ноль (на ребре) означает инверсию или вырождение
+      if (newSide * origSide <= 0) {
+        return false;
+      }
+    }
+
+    // Проверка 3: новая позиция вершины не должна находиться внутри чужого треугольника.
+    for (var i = 0; i < triangles.Length; i += 3) {
+      var t0 = triangles[i];
+      var t1 = triangles[i + 1];
+      var t2 = triangles[i + 2];
+
+      if (t0 == vertexId || t1 == vertexId || t2 == vertexId) {
+        continue;
+      }
+
+      var (ax, ay) = GetVertexPos(t0, world);
+      var (bx, by) = GetVertexPos(t1, world);
+      var (cx, cy) = GetVertexPos(t2, world);
+
+      if (PointInTriangle(nx, ny, ax, ay, bx, by, cx, cy)) {
+        return false;
       }
     }
 

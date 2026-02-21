@@ -3,6 +3,8 @@ using Arch.Core;
 namespace Cavetronic.Systems;
 
 // Перемещает выделенную вершину во время LMB drag.
+// Использует абсолютное позиционирование с оффсетом, захваченным в начале драга,
+// чтобы избежать накопительного эффекта при несовпадении тикрейтов InputSystem и игрового цикла.
 public class BlueprintVertexMoveSystem(GameWorld gameWorld) : EcsSystem(gameWorld) {
   private readonly QueryDescription _blueprintQuery =
     new QueryDescription().WithAll<
@@ -11,7 +13,14 @@ public class BlueprintVertexMoveSystem(GameWorld gameWorld) : EcsSystem(gameWorl
       ControlSubjectInput<CursorLeftMoveAction>
     >();
 
+  // Оффсет между позицией вершины и курсором в момент начала драга
+  private int _dragTargetId;
+  private float _dragOffsetX;
+  private float _dragOffsetY;
+
   public override void Tick(float dt) {
+    var dragActiveThisTick = false;
+
     GameWorld.Ecs.Query(in _blueprintQuery, (
       ref BlueprintMesh mesh,
       ref ControlSubjectInput<CursorLeftMoveAction> lmb
@@ -33,8 +42,17 @@ public class BlueprintVertexMoveSystem(GameWorld gameWorld) : EcsSystem(gameWorl
 
       ref var vertex = ref GameWorld.Ecs.Get<BlueprintVertex>(vertexEntity);
 
-      var nx = lmb.Payload.EndX;
-      var ny = lmb.Payload.EndY;
+      // Захватываем оффсет один раз при начале нового драга
+      if (_dragTargetId != dragId) {
+        _dragTargetId = dragId;
+        _dragOffsetX = vertex.X - lmb.Payload.EndX;
+        _dragOffsetY = vertex.Y - lmb.Payload.EndY;
+      }
+
+      dragActiveThisTick = true;
+
+      var nx = lmb.Payload.EndX + _dragOffsetX;
+      var ny = lmb.Payload.EndY + _dragOffsetY;
 
       if (!BlueprintGeometry.IsVertexMoveValid(dragId, nx, ny, mesh.Triangles, GameWorld)) {
         return;
@@ -43,13 +61,14 @@ public class BlueprintVertexMoveSystem(GameWorld gameWorld) : EcsSystem(gameWorl
       vertex.X = nx;
       vertex.Y = ny;
     });
+
+    if (!dragActiveThisTick) {
+      _dragTargetId = 0;
+    }
   }
 
-  // Возвращает StableId вершины, которую нужно тащить.
-  // Если выделены две — тащим SelectedId2 (последнюю выделенную) и сбрасываем первую.
   private static int GetDragTargetId(ref BlueprintMesh mesh) {
     if (mesh.SelectedId2 != 0) {
-      mesh.SelectedId1 = 0;
       return mesh.SelectedId2;
     }
 

@@ -36,13 +36,17 @@ public class Program {
     gameWorld.RegisterEntity(V1Id, v1);
     gameWorld.RegisterEntity(V2Id, v2);
 
-    // Blueprint-сущность: ControlSubject + BlueprintMesh на одной сущности,
-    // чтобы запросы (Blueprint, BlueprintMesh, ControlSubjectInput<T>) совпадали.
+    // Blueprint-сущность: ControlSubject + BlueprintMesh на одной сущности.
+    // ControlSubjectInputDescriptor<T> объявляет, какие инпуты принимает эта сущность.
     var blueprintEntity = gameWorld.Ecs.Create(
       new StableId { Id = BlueprintEntityId },
       new Blueprint(),
       new ControlSubject(),
-      new BlueprintMesh { Triangles = [V0Id, V1Id, V2Id] }
+      new BlueprintMesh { Triangles = [V0Id, V1Id, V2Id] },
+      new ControlSubjectInputDescriptor<CursorInput>(),
+      new ControlSubjectInputDescriptor<CursorLeftMoveAction>(),
+      new ControlSubjectInputDescriptor<CursorRightClickAction>(),
+      new ControlSubjectInputDescriptor<ShiftModifier>()
     );
     gameWorld.RegisterEntity(BlueprintEntityId, blueprintEntity);
 
@@ -51,8 +55,8 @@ public class Program {
 
     var cameraSystem = new CameraSystem(gameWorld);
     var systems = new EcsSystem[] {
-      new BlueprintInputSystem(gameWorld, cameraSystem),
-      new BlueprintInputSyncSystem(gameWorld),
+      new InputSystem(gameWorld, cameraSystem),
+      new ControlInputSyncSystem(gameWorld),
       new ControlTransferSystem(gameWorld),
       new BlueprintCursorSystem(gameWorld),
       new BlueprintVertexSelectSystem(gameWorld),
